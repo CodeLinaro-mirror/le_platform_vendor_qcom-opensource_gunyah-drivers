@@ -1047,27 +1047,30 @@ static irqreturn_t vdev_interrupt(int irq, void *data)
 	int ret;
 	unsigned long flags;
 
-	ret = get_event(vb_dev->cap_id, &event_data, &event);
-	trace_gh_virtio_backend_irq(vb_dev->label, event, event_data, ret);
-	if (ret || !event)
-		return IRQ_HANDLED;
-
-	spin_lock_irqsave(&vb_dev->lock, flags);
-	if ((event & EVENT_NEW_BUFFER) && vb_dev->ack_driver_ok) {
-		event &= ~EVENT_NEW_BUFFER;
-		vb_dev->vdev_event_data |= event_data;
-		signal_vqs(vb_dev);
+	while ((ret = get_event(vb_dev->cap_id, &event_data, &event)) == 0) {
 		if (!event)
-			goto done;
-		/* event_data should be only for EVENT_NEW_BUFFER */
-		event_data = 0;
-	}
-	vb_dev->vdev_event |= event;
-	vb_dev->vdev_event_data |= event_data;
-	vb_dev->evt_avail = 1;
-	wake_up_interruptible(&vb_dev->evt_queue);
+			break;
+		trace_gh_virtio_backend_irq(vb_dev->label, event, event_data, ret);
+
+		spin_lock_irqsave(&vb_dev->lock, flags);
+		if ((event & EVENT_NEW_BUFFER) && vb_dev->ack_driver_ok) {
+			event &= ~EVENT_NEW_BUFFER;
+			vb_dev->vdev_event_data |= event_data;
+			signal_vqs(vb_dev);
+			if (!event)
+				goto done;
+			/* event_data should be only for EVENT_NEW_BUFFER */
+			event_data = 0;
+		}
+		vb_dev->vdev_event |= event;
+		vb_dev->vdev_event_data |= event_data;
+		vb_dev->evt_avail = 1;
+		wake_up_interruptible(&vb_dev->evt_queue);
 done:
-	spin_unlock_irqrestore(&vb_dev->lock, flags);
+		spin_unlock_irqrestore(&vb_dev->lock, flags);
+		if (!vb_dev->batch_events)
+                        break;
+	}
 
 	return IRQ_HANDLED;
 }

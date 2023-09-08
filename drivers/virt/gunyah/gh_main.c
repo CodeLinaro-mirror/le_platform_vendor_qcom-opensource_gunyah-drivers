@@ -24,6 +24,8 @@
 #define MAX_VCPU_NAME	20 /* gh-vcpu:u32_max +1 */
 
 SRCU_NOTIFIER_HEAD_STATIC(gh_vm_notifier);
+static DEFINE_SPINLOCK(vm_list_lock);
+static LIST_HEAD(vm_list);
 
 /*
  * Support for RM calls and the wait for change of status
@@ -42,6 +44,22 @@ gh_rm_call_and_set_status(vm_start);
 
 #define gh_wait_for_vm_status(vm, wait_status) 				\
 	wait_event(vm->vm_status_wait, (vm->status.vm_status == wait_status))
+
+static struct gh_vm *find_vm_by_name(const char *vm_name)
+{
+	struct gh_vm *vm = NULL, *tmp;
+
+	spin_lock(&vm_list_lock);
+	list_for_each_entry(tmp, &vm_list, list) {
+		if (!strcmp(tmp->fw_name, vm_name)) {
+			vm = tmp;
+			break;
+		}
+	}
+	spin_unlock(&vm_list_lock);
+
+	return vm;
+}
 
 int gh_register_vm_notifier(struct notifier_block *nb)
 {
@@ -88,6 +106,7 @@ static void gh_notif_vm_exited(struct gh_vm *vm,
 	vm->status.vm_status = GH_RM_VM_STATUS_EXITED;
 	gh_wakeup_all_vcpus(vm->vmid);
 	wake_up_interruptible(&vm->vm_status_wait);
+	wake_up_interruptible(&vm->vm_exit_ioc_wait);
 	mutex_unlock(&vm->vm_lock);
 }
 
@@ -96,6 +115,18 @@ static int gh_wait_for_vm_status_intr(struct gh_vm *vm, int wait_status)
 	int ret = 0;
 
 	ret = wait_event_interruptible(vm->vm_status_wait,
+			vm->status.vm_status == wait_status);
+	if (ret < 0)
+		pr_err("Wait for VM_STATUS %d interrupted\n", wait_status);
+
+	return ret;
+}
+
+static int gh_ioc_wait_for_vm_status(struct gh_vm *vm, int wait_status)
+{
+	int ret = 0;
+
+	ret = wait_event_interruptible(vm->vm_exit_ioc_wait,
 			vm->status.vm_status == wait_status);
 	if (ret < 0)
 		pr_err("Wait for VM_STATUS %d interrupted\n", wait_status);
@@ -694,8 +725,12 @@ static struct gh_vm *gh_create_vm(void)
 	}
 	refcount_set(&vm->users_count, 1);
 	init_waitqueue_head(&vm->vm_status_wait);
+	init_waitqueue_head(&vm->vm_exit_ioc_wait);
 	vm->status.vm_status = GH_RM_VM_STATUS_NO_STATE;
 	vm->exit_type = -EINVAL;
+	spin_lock(&vm_list_lock);
+	list_add(&vm->list, &vm_list);
+	spin_unlock(&vm_list_lock);
 
 	return vm;
 }
@@ -733,6 +768,32 @@ err_destroy_vm:
 	return err;
 }
 
+static long gh_dev_ioctl_wait_for_exit(unsigned long arg)
+{
+	struct gh_vm *vm;
+	struct gh_fw_name_and_exit_status vm_name_and_status;
+	int ret = 0;
+
+	if (copy_from_user(&vm_name_and_status, (void __user *)arg,
+				sizeof(vm_name_and_status)))
+		return -EFAULT;
+
+	vm = find_vm_by_name(vm_name_and_status.name);
+	if (!vm)
+		return -EINVAL;
+
+	ret = gh_ioc_wait_for_vm_status(vm, GH_RM_VM_STATUS_EXITED);
+	if (ret)
+		return ret;
+
+	vm_name_and_status.reason = (u32)vm->exit_type;
+	if (copy_to_user((void __user *)arg, &vm_name_and_status,
+				sizeof(vm_name_and_status)))
+		return -EFAULT;
+
+	return 0;
+}
+
 static long gh_dev_ioctl(struct file *filp,
 				unsigned int cmd, unsigned long arg)
 {
@@ -741,6 +802,9 @@ static long gh_dev_ioctl(struct file *filp,
 	switch (cmd) {
 	case GH_CREATE_VM:
 		ret = gh_dev_ioctl_create_vm(arg);
+		break;
+	case GH_VM_WAIT_FOR_EXIT:
+		ret = gh_dev_ioctl_wait_for_exit(arg);
 		break;
 	default:
 		pr_err("Invalid gunyah dev ioctl 0x%lx\n", cmd);

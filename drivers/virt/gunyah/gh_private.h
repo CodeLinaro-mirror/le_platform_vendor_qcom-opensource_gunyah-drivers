@@ -37,10 +37,12 @@ struct gh_vm {
 	struct notifier_block rm_nb;
 	struct gh_vm_status status;
 	wait_queue_head_t vm_status_wait;
+	wait_queue_head_t vm_exit_ioc_wait;
 	int exit_type;
 	refcount_t users_count;
 	gh_memparcel_handle_t mem_handle;
 	struct mutex vm_lock;
+	struct list_head list;
 };
 
 /*

@@ -1,0 +1,28 @@
+LINUXINCLUDE += -I$(GUNYAH_ROOT)/include \
+		-I$(GUNYAH_ROOT)/include/uapi \
+		-I$(GUNYAH_ROOT)/arch/arm64/include \
+		-I$(KERNEL_SRC)/include \
+
+EXTRA_CFLAGS += -DCONFIG_GH_DBL=1 \
+		-DCONFIG_GH_MSGQ=1 \
+		-DCONFIG_GH_RM_DRV=1 \
+		-DCONFIG_GH_ARM64_DRV=1 \
+		-Iinclude/linux \
+
+obj-$(CONFIG_GH_VIRT_WATCHDOG) += gh_virt_wdt.o
+obj-$(CONFIG_GH_DBL) += gh_dbl.o
+obj-$(CONFIG_GH_MSGQ) += gh_msgq.o
+
+obj-$(CONFIG_GH_RM_DRV) += gh_rm_drv.o
+gh_rm_drv-y += gh_rm_core.o gh_rm_iface.o
+
+obj-$(CONFIG_GH_IRQ_LEND) += gh_irq_lend.o
+obj-$(CONFIG_GH_MEM_NOTIFIER) += gh_mem_notifier.o
+obj-$(CONFIG_GH_GUEST_POPS) += gh_guest_pops.o
+
+obj-m += gunyah.o
+gunyah-y += gh_main.o gh_secure_vm_virtio_backend.o
+gunyah-y += gh_secure_vm_loader.o
+gunyah-$(CONFIG_GH_PROXY_SCHED)	+= gh_proxy_sched.o
+
+CFLAGS_gh_secure_vm_virtio_backend.o = -DDYNAMIC_DEBUG_MODULE

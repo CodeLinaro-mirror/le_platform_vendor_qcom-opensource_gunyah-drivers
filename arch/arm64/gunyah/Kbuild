@@ -1,0 +1,5 @@
+LINUXINCLUDE += -I$(GUNYAH_ROOT)/include
+EXTRA_CFLAGS += -DCONFIG_GH_ARM64_DRV=1
+
+obj-m		+= gh_arm_drv.o
+gh_arm_drv-y	:= gh_arm.o irq.o reset.o

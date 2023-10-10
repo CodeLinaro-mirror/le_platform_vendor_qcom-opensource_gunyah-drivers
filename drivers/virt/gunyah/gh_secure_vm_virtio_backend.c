@@ -117,6 +117,8 @@ struct virtio_backend_device {
 	/* Page shared with frontend */
 	char __iomem *config_shared_buf;
 	u64  config_shared_size;
+	/* Property to enable batched events */
+	bool batch_events;
 };
 
 static struct virt_machine *find_vm_by_name(const char *vm_name)
@@ -881,6 +883,7 @@ static int gh_virtio_backend_probe(struct device *dev, struct device_node *np,
 	struct virtio_backend_device *vb_dev = NULL, *tmp;
 	struct virt_machine *vm;
 	u32 label;
+	bool batch_events;
 
 	if (!np || !str || !dev)
 		return -EINVAL;
@@ -905,6 +908,8 @@ static int gh_virtio_backend_probe(struct device *dev, struct device_node *np,
 		of_node_put(vm_np);
 		return -EINVAL;
 	}
+
+	batch_events = of_property_read_bool(np, "qcom,batch_events");
 
 	mutex_lock(&vm_mutex);
 	vm = find_vm_by_name(str);
@@ -943,6 +948,7 @@ static int gh_virtio_backend_probe(struct device *dev, struct device_node *np,
 		return -ENOMEM;
 	}
 
+	vb_dev->batch_events = batch_events;
 	vb_dev->label = label;
 	vb_dev->vm = vm;
 	spin_lock_init(&vb_dev->lock);

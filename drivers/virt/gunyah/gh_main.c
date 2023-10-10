@@ -433,13 +433,16 @@ err_destroy_vcpu:
 	return err;
 }
 
-int gh_reclaim_mem(struct gh_vm *vm, phys_addr_t phys,
-					ssize_t size, bool is_system_vm)
+int gh_reclaim_mem(struct gh_vm *vm, struct gh_mem_parcel *mem_parcels,
+					u32 mem_parcel_count, bool is_system_vm)
 {
 	int vmid = vm->vmid;
 	struct qcom_scm_vmperm destVM[2] = {{QCOM_SCM_VMID_HLOS, QCOM_SCM_PERM_RWX},
 						{vmid, QCOM_SCM_PERM_RWX}};
 	u64 srcVM = BIT(vmid);
+	phys_addr_t phys;
+	ssize_t size;
+	int i;
 	int ret = 0;
 
 	if (!is_system_vm) {
@@ -450,15 +453,22 @@ int gh_reclaim_mem(struct gh_vm *vm, phys_addr_t phys,
 						vm->vmid, ret);
 	}
 
-	ret = qcom_scm_assign_mem(phys, size, &srcVM, destVM, ARRAY_SIZE(destVM));
-	if (ret)
-		pr_err("failed qcom_assign for %pa address of size %zx - subsys VMid %d rc:%d\n",
+	for (i = 0; i < mem_parcel_count; i++) {
+		phys = mem_parcels[i].mem_phys;
+		size = mem_parcels[i].mem_size;
+		ret = qcom_scm_assign_mem(phys, size, &srcVM, destVM, ARRAY_SIZE(destVM));
+		if (ret) {
+			pr_err("failed qcom_assign for %pa address of size %zx - subsys VMid %d rc:%d\n",
 				&phys, size, vmid, ret);
+			return ret;
+		}
+	}
+
 	return ret;
 }
 
-int gh_provide_mem(struct gh_vm *vm, phys_addr_t phys,
-					ssize_t size, bool is_system_vm)
+int gh_provide_mem(struct gh_vm *vm, struct gh_mem_parcel *mem_parcels,
+					u32 mem_parcel_count, bool is_system_vm)
 {
 	gh_vmid_t vmid = vm->vmid;
 	struct gh_acl_desc *acl_desc;
@@ -468,6 +478,9 @@ int gh_provide_mem(struct gh_vm *vm, phys_addr_t phys,
 						{vmid, QCOM_SCM_PERM_RWX}};
 	u64 srcvmid = BIT(srcVM[0].vmid);
 	u64 dstvmid = BIT(destVM[0].vmid) | BIT(destVM[1].vmid);
+	phys_addr_t phys;
+	ssize_t size;
+	int i;
 	int ret = 0;
 
 	acl_desc = kzalloc(offsetof(struct gh_acl_desc, acl_entries[2]),
@@ -484,22 +497,27 @@ int gh_provide_mem(struct gh_vm *vm, phys_addr_t phys,
 	acl_desc->acl_entries[1].perms =
 				GH_RM_ACL_X | GH_RM_ACL_R | GH_RM_ACL_W;
 
-	sgl_desc = kzalloc(offsetof(struct gh_sgl_desc, sgl_entries[1]),
+	sgl_desc = kzalloc(offsetof(struct gh_sgl_desc, sgl_entries[mem_parcel_count]),
 			GFP_KERNEL);
 	if (!sgl_desc) {
 		kfree(acl_desc);
 		return -ENOMEM;
 	}
 
-	sgl_desc->n_sgl_entries = 1;
-	sgl_desc->sgl_entries[0].ipa_base = phys;
-	sgl_desc->sgl_entries[0].size = size;
+	sgl_desc->n_sgl_entries = mem_parcel_count;
 
-	ret = qcom_scm_assign_mem(phys, size, &srcvmid, destVM, ARRAY_SIZE(destVM));
-	if (ret) {
-		pr_err("failed qcom_assign for %pa address of size %zx - subsys VMid %d rc:%d\n",
-			phys, size, vmid, ret);
-		goto err_assign_mem;
+	for (i = 0; i < mem_parcel_count; i++) {
+		phys = mem_parcels[i].mem_phys;
+		size = mem_parcels[i].mem_size;
+		sgl_desc->sgl_entries[i].ipa_base = phys;
+		sgl_desc->sgl_entries[i].size = size;
+
+		ret = qcom_scm_assign_mem(phys, size, &srcvmid, destVM, ARRAY_SIZE(destVM));
+		if (ret) {
+			pr_err("failed qcom_assign for %pa address of size %zx - subsys VMid %d rc:%d\n",
+				phys, size, vmid, ret);
+			goto err_assign_mem;
+		}
 	}
 
 	/*
@@ -516,12 +534,15 @@ int gh_provide_mem(struct gh_vm *vm, phys_addr_t phys,
 		ret = gh_rm_mem_share(GH_RM_MEM_TYPE_NORMAL, 0, 0, acl_desc,
 				sgl_desc, NULL, &vm->mem_handle);
 
-	if (ret) {
-		ret = qcom_scm_assign_mem(phys, size, &dstvmid, srcVM, ARRAY_SIZE(srcVM));
-		if (ret)
-			pr_err("failed qcom_assign for %pa address of size %zx - subsys VMid %d rc:%d\n",
-					&phys, size, srcVM[0].vmid, ret);
-	}
+	if (ret)
+		for(i = 0; i < mem_parcel_count; i++) {
+			phys = mem_parcels[i].mem_phys;
+			size = mem_parcels[i].mem_size;
+			ret = qcom_scm_assign_mem(phys, size, &dstvmid, srcVM, ARRAY_SIZE(srcVM));
+			if (ret)
+				pr_err("failed qcom_assign for %pa address of size %zx - subsys VMid %d rc:%d\n",
+						&phys, size, srcVM[0].vmid, ret);
+		}
 
 err_assign_mem:
 	kfree(acl_desc);

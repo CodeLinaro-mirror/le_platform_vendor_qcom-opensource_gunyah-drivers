@@ -16,6 +16,11 @@
 #define GH_EVENT_DESTROY_VM 1
 #define GH_MAX_VCPUS 8
 
+struct gh_mem_parcel {
+	phys_addr_t mem_phys;
+	ssize_t mem_size;
+};
+
 struct gh_vcpu {
 	u32 vcpu_id;
 	struct gh_vm *vm;
@@ -41,10 +46,10 @@ struct gh_vm {
 /*
  * memory lending/donating and reclaiming APIs
  */
-int gh_provide_mem(struct gh_vm *vm, phys_addr_t phys,
-					ssize_t size, bool is_system_vm);
-int gh_reclaim_mem(struct gh_vm *vm, phys_addr_t phys,
-					ssize_t size, bool is_system_vm);
+int gh_provide_mem(struct gh_vm *vm, struct gh_mem_parcel *mem_parcels,
+				u32 mem_parcel_count, bool is_system_vm);
+int gh_reclaim_mem(struct gh_vm *vm, struct gh_mem_parcel *mem_parcels,
+				u32 mem_parcel_count, bool is_system_vm);
 long gh_vm_configure(u16 auth_mech, u64 image_offset,
 			u64 image_size, u64 dtb_offset, u64 dtb_size,
 			u32 pas_id, const char *fw_name, struct gh_vm *vm);

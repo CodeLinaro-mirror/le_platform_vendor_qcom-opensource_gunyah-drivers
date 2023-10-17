@@ -7,9 +7,9 @@ obj-y += arch/arm64/gunyah/
 obj-y += drivers/virt/gunyah/
 obj-y += drivers/tty/hvc/
 
-.PHONY: all modules_install clean
+all: clean modules
 
-all:
+modules:
 	$(MAKE) -C $(KERNEL_SRC) M=$(PWD) $(KBUILD_OPTIONS) modules
 
 modules_install:

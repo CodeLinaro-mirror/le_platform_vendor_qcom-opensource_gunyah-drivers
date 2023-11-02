@@ -437,9 +437,8 @@ int gh_reclaim_mem(struct gh_vm *vm, struct gh_mem_parcel *mem_parcels,
 					u32 mem_parcel_count, bool is_system_vm)
 {
 	int vmid = vm->vmid;
-	struct qcom_scm_vmperm destVM[2] = {{QCOM_SCM_VMID_HLOS, QCOM_SCM_PERM_RWX},
-						{vmid, QCOM_SCM_PERM_RWX}};
-	u64 srcVM = BIT(vmid);
+	struct qcom_scm_vmperm destVM[1] = {{QCOM_SCM_VMID_HLOS, QCOM_SCM_PERM_RWX}};
+	u64 srcvmid = BIT(QCOM_SCM_VMID_HLOS) | BIT(vmid);
 	phys_addr_t phys;
 	ssize_t size;
 	int i;
@@ -456,7 +455,7 @@ int gh_reclaim_mem(struct gh_vm *vm, struct gh_mem_parcel *mem_parcels,
 	for (i = 0; i < mem_parcel_count; i++) {
 		phys = mem_parcels[i].mem_phys;
 		size = mem_parcels[i].mem_size;
-		ret = qcom_scm_assign_mem(phys, size, &srcVM, destVM, ARRAY_SIZE(destVM));
+		ret = qcom_scm_assign_mem(phys, size, &srcvmid, destVM, ARRAY_SIZE(destVM));
 		if (ret) {
 			pr_err("failed qcom_assign for %pa address of size %zx - subsys VMid %d rc:%d\n",
 				&phys, size, vmid, ret);

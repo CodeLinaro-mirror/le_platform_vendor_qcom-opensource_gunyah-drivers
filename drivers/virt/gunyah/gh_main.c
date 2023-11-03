@@ -87,8 +87,20 @@ static void gh_notif_vm_exited(struct gh_vm *vm,
 	vm->exit_type = vm_exited->exit_type;
 	vm->status.vm_status = GH_RM_VM_STATUS_EXITED;
 	gh_wakeup_all_vcpus(vm->vmid);
-	wake_up(&vm->vm_status_wait);
+	wake_up_interruptible(&vm->vm_status_wait);
 	mutex_unlock(&vm->vm_lock);
+}
+
+static int gh_wait_for_vm_status_intr(struct gh_vm *vm, int wait_status)
+{
+	int ret = 0;
+
+	ret = wait_event_interruptible(vm->vm_status_wait,
+			vm->status.vm_status == wait_status);
+	if (ret < 0)
+		pr_err("Wait for VM_STATUS %d interrupted\n", wait_status);
+
+	return ret;
 }
 
 static int gh_vm_rm_notifier_fn(struct notifier_block *nb,
@@ -319,7 +331,10 @@ start_vcpu_run:
 	}
 
 	else {
-		gh_wait_for_vm_status(vm, GH_RM_VM_STATUS_EXITED);
+		ret = gh_wait_for_vm_status_intr(vm, GH_RM_VM_STATUS_EXITED);
+		if (ret)
+			return ret;
+
 		ret = vm->exit_type;
 	}
 

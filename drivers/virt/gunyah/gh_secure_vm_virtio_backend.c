@@ -48,6 +48,8 @@
 #define get_queue_info		gh_hcall_virtio_mmio_backend_get_queue_info
 #define get_event		gh_hcall_virtio_mmio_backend_get_event
 #define ack_reset		gh_hcall_virtio_mmio_backend_ack_reset
+#define input_configure		gh_hcall_virtio_mmio_backend_input_configure
+#define input_set_data		gh_hcall_virtio_mmio_backend_input_set_data
 
 static DEFINE_MUTEX(vm_mutex);
 static DEFINE_SPINLOCK(vm_list_lock);
@@ -337,6 +339,8 @@ long gh_virtio_backend_ioctl(const char *vm_name, unsigned int cmd,
 	struct gh_hcall_virtio_queue_info qinfo;
 	struct virtio_driver_features df;
 	struct virtio_event ve;
+	struct virtio_input_device_config idc;
+	struct virtio_input_device_data idd;
 	u64 features;
 	u32 label;
 	int ret = 0, i, nr_words;
@@ -730,6 +734,53 @@ loop_back:
 		}
 
 		mutex_unlock(&vb_dev->mutex);
+		vb_dev_put(vb_dev);
+		break;
+
+	case GH_SET_INPUT_DEVICE_CONFIG_DATA:
+		if (copy_from_user(&idc, argp, sizeof(idc)))
+			return -EFAULT;
+
+		if (!idc.label)
+			return -EINVAL;
+
+		vb_dev = vb_dev_get(vm, idc.label);
+		if (!vb_dev)
+			return -EINVAL;
+
+		ret = input_configure(vb_dev->cap_id, idc.device_id,
+				idc.prop_bits, idc.num_ev_types,
+				idc.num_abs_axes);
+		if (ret) {
+			vb_dev_put(vb_dev);
+			dev_err(vm->dev, "%s: set_input_configure failed ret %d\n",
+				VIRTIO_PRINT_MARKER, ret);
+			return ret;
+		}
+
+		vb_dev_put(vb_dev);
+		break;
+
+	case GH_SET_INPUT_DEVICE_DATA:
+		if (copy_from_user(&idd, argp, sizeof(idd)))
+			return -EFAULT;
+
+		if (!idd.label)
+			return -EINVAL;
+
+		vb_dev = vb_dev_get(vm, idd.label);
+		if (!vb_dev)
+			return -EINVAL;
+
+		ret = input_set_data(vb_dev->cap_id, idd.sel, idd.subsel, idd.size,
+				&idd.payload);
+		if (ret) {
+			vb_dev_put(vb_dev);
+			dev_err(vm->dev, "%s: set_input_data failed ret %d\n",
+				VIRTIO_PRINT_MARKER, ret);
+			return ret;
+		}
+
 		vb_dev_put(vb_dev);
 		break;
 

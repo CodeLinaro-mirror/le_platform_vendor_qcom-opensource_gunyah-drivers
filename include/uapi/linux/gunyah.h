@@ -263,6 +263,27 @@ struct gh_fw_name_and_exit_status {
  */
 #define GH_ACK_RESET		_IOW(GH_IOCTL_TYPE, 0x6d, struct virtio_ack_reset)
 
+/**
+ * GH_SET_INPUT_DEVICE_CONFIG_DATA - This ioctl writes the input device
+ *                          configuration data to a page shared with a guest VM.
+ *
+ *
+ * Input: virtio_input_device_config structure with the required attributes.
+ *
+ * Return: 0 if success, -errno on failure
+ */
+#define GH_SET_INPUT_DEVICE_CONFIG_DATA	_IOW(GH_IOCTL_TYPE, 0x6e, struct virtio_input_device_config)
+
+/**
+ * GH_SET_INPUT_DEVICE_DATA - This ioctl writes the input device data to a page
+ *                          shared with the guest VM.
+ *
+ * Input: virtio_input_device_data structure with the required attributes.
+ *
+ * Return: 0 if success, -errno on failure
+ */
+#define GH_SET_INPUT_DEVICE_DATA _IOW(GH_IOCTL_TYPE, 0x6f, struct virtio_input_device_data)
+
 /*
  * ioctls for vcpu fd.
  */
@@ -340,6 +361,24 @@ struct virtio_irqfd {
 	__u32 flags;
 	__s32 fd;
 	__u32 reserved;
+};
+
+struct virtio_input_device_config {
+	__u32 label;
+	__u64 device_id;
+	__u32 prop_bits;
+	__u8 num_ev_types;
+	__u8 num_abs_axes;
+	__u32 reserved;
+};
+
+struct virtio_input_device_data {
+	__u32 label;
+	__u8 sel;
+	__u8 subsel;
+	__u8 size;
+	__u8 reserved[5];
+	__u8 payload[128];
 };
 
 #endif /* _UAPI_LINUX_GUNYAH */

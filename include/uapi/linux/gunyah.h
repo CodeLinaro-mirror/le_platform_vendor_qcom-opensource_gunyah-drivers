@@ -32,6 +32,11 @@ struct gh_fw_name {
 	char name[GH_VM_FW_NAME_MAX];
 };
 
+struct gh_fw_name_and_exit_status {
+	char name[GH_VM_FW_NAME_MAX];
+	__u32 reason;
+};
+
 #define VBE_ASSIGN_IOEVENTFD	1
 #define VBE_DEASSIGN_IOEVENTFD	2
 
@@ -75,6 +80,8 @@ struct gh_fw_name {
  */
 #define GH_CREATE_VM			_IO(GH_IOCTL_TYPE, 0x01)
 
+#define GH_VM_WAIT_FOR_EXIT		_IOWR(GH_IOCTL_TYPE, 0x02, \
+						struct gh_fw_name_and_exit_status)
 /*
  * ioctls for VM fd.
  */

@@ -496,6 +496,8 @@ int gh_reclaim_mem(struct gh_vm *vm, struct gh_mem_parcel *mem_parcels,
 				&phys, size, vmid, ret);
 			return ret;
 		}
+
+		srcvmid = BIT(QCOM_SCM_VMID_HLOS) | BIT(vmid);
 	}
 
 	return ret;
@@ -552,6 +554,8 @@ int gh_provide_mem(struct gh_vm *vm, struct gh_mem_parcel *mem_parcels,
 				phys, size, vmid, ret);
 			goto err_assign_mem;
 		}
+
+		srcvmid = BIT(srcVM[0].vmid);
 	}
 
 	/*
@@ -576,6 +580,8 @@ int gh_provide_mem(struct gh_vm *vm, struct gh_mem_parcel *mem_parcels,
 			if (ret)
 				pr_err("failed qcom_assign for %pa address of size %zx - subsys VMid %d rc:%d\n",
 						&phys, size, srcVM[0].vmid, ret);
+
+			dstvmid = BIT(destVM[0].vmid) | BIT(destVM[1].vmid);
 		}
 
 err_assign_mem:

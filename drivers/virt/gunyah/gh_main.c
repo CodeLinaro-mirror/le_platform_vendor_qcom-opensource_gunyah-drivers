@@ -369,6 +369,8 @@ start_vcpu_run:
 			return ret;
 
 		ret = vm->exit_type;
+
+		gh_virtio_mmio_app_exit(vm->vmid, vm->fw_name);
 	}
 
 	return ret;

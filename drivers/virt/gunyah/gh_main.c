@@ -273,6 +273,9 @@ void gh_destroy_vm(struct gh_vm *vm)
 	gh_uevent_notify_change(GH_EVENT_DESTROY_VM, vm);
 	gh_notify_clients(vm, GH_VM_POWEROFF);
 	memset(vm->fw_name, 0, GH_VM_FW_NAME_MAX);
+	spin_lock(&vm_list_lock);
+	list_del(&vm->list);
+	spin_unlock(&vm_list_lock);
 
 clean_vm:
 	gh_rm_unregister_notifier(&vm->rm_nb);

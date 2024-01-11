@@ -105,6 +105,7 @@ static void gh_notif_vm_exited(struct gh_vm *vm,
 	vm->exit_type = vm_exited->exit_type;
 	vm->status.vm_status = GH_RM_VM_STATUS_EXITED;
 	gh_wakeup_all_vcpus(vm->vmid);
+	wake_up(&vm->vm_status_wait);
 	wake_up_interruptible(&vm->vm_status_wait);
 	wake_up_interruptible(&vm->vm_exit_ioc_wait);
 	mutex_unlock(&vm->vm_lock);
@@ -225,7 +226,8 @@ static int gh_stop_vm(struct gh_vm *vm)
 	gh_vmid_t vmid = vm->vmid;
 	int ret = -EINVAL;
 
-	ret = gh_exit_vm(vm, GH_VM_STOP_RESTART, 0);
+	ret = gh_exit_vm(vm, GH_VM_STOP_RESTART,
+					GH_RM_VM_STOP_FLAG_FORCE_STOP);
 	if (ret && ret != -ENODEV)
 		goto err_vm_force_stop;
 

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
- * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
@@ -20,6 +20,7 @@
 #include "gh_secure_vm_loader.h"
 #include "gh_proxy_sched.h"
 #include "gh_private.h"
+#include "gvm_dump_debugfs.h"
 
 #define MAX_VCPU_NAME	20 /* gh-vcpu:u32_max +1 */
 
@@ -882,6 +883,8 @@ static int __init gh_init(void)
 	if (ret)
 		pr_err("gunyah: virtio backend init failed %d\n", ret);
 
+	enable_gvm_ramdump_debugfs();
+
 	return ret;
 
 err_gh_init:
@@ -895,6 +898,7 @@ static void __exit gh_exit(void)
 {
 	misc_deregister(&gh_dev);
 	gh_proxy_sched_exit();
+	cleanup_gvm_ramdump_list();
 	gh_secure_vm_loader_exit();
 	gh_virtio_backend_exit();
 }

@@ -556,7 +556,7 @@ int gh_provide_mem(struct gh_vm *vm, struct gh_mem_parcel *mem_parcels,
 		ret = qcom_scm_assign_mem(phys, size, &srcvmid, destVM, ARRAY_SIZE(destVM));
 		if (ret) {
 			pr_err("failed qcom_assign for %pa address of size %zx - subsys VMid %d rc:%d\n",
-				phys, size, vmid, ret);
+				&phys, size, vmid, ret);
 			goto err_assign_mem;
 		}
 

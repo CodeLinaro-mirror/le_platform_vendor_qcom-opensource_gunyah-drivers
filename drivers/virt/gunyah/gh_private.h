@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /*
- * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #ifndef _GH_PRIVATE_H
@@ -15,6 +15,7 @@
 #define GH_EVENT_CREATE_VM 0
 #define GH_EVENT_DESTROY_VM 1
 #define GH_MAX_VCPUS 8
+#define GH_MAX_VMIDS 16
 
 struct gh_mem_parcel {
 	phys_addr_t mem_phys;
@@ -45,6 +46,20 @@ struct gh_vm {
 	struct list_head list;
 };
 
+struct gh_shmem {
+	phys_addr_t base;
+	ssize_t size;
+	u32 src_vmids[GH_MAX_VMIDS];
+	int src_vmids_count;
+	u32 dst_vmids[GH_MAX_VMIDS];
+	int dst_vmids_count;
+	gh_vm_perm_t src_perms[GH_MAX_VMIDS];
+	gh_vm_perm_t dst_perms[GH_MAX_VMIDS];
+	gh_label_t gunyah_label;
+	bool is_shared;
+	gh_memparcel_handle_t shmem_handle;
+};
+
 /*
  * memory lending/donating and reclaiming APIs
  */
@@ -52,6 +67,8 @@ int gh_provide_mem(struct gh_vm *vm, struct gh_mem_parcel *mem_parcels,
 				u32 mem_parcel_count, bool is_system_vm);
 int gh_reclaim_mem(struct gh_vm *vm, struct gh_mem_parcel *mem_parcels,
 				u32 mem_parcel_count, bool is_system_vm);
+int gh_provide_shmem(struct gh_vm *vm, struct gh_shmem *shmems);
+int gh_reclaim_shmem(struct gh_vm *vm, struct gh_shmem *shmems);
 long gh_vm_configure(u16 auth_mech, u64 image_offset,
 			u64 image_size, u64 dtb_offset, u64 dtb_size,
 			u32 pas_id, const char *fw_name, struct gh_vm *vm);

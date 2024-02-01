@@ -43,6 +43,8 @@ struct gh_sec_vm_dev {
 	int pas_id;
 	int vmid;
 	unsigned int fw_index;
+	struct gh_shmem *sh_mem_regions;
+	unsigned int sh_mem_count;
 };
 
 const static struct {
@@ -232,6 +234,15 @@ static int gh_vm_loader_sec_load(struct gh_sec_vm_dev *vm_dev,
 		dev_err(dev, "Configuring secure VM %s to memory failed %ld\n",
 					vm_dev->vm_name, ret);
 
+	for (i = 0; i < vm_dev->sh_mem_count; i++) {
+		ret = gh_provide_shmem(vm, &vm_dev->sh_mem_regions[i]);
+		if (ret) {
+			dev_err(dev, "Failed to provide shared memory for %s, %d\n",
+					vm_dev->vm_name, ret);
+			goto release_fw;
+		}
+	}
+
 release_fw:
 	kfree(metadata);
 	release_firmware(fw);
@@ -376,6 +387,10 @@ int gh_secure_vm_loader_reclaim_fw(struct gh_vm *vm)
 
 	dev = sec_vm_dev->dev;
 
+	for (i = 0; i < sec_vm_dev->sh_mem_count; i ++) {
+		ret = gh_reclaim_shmem(vm, &sec_vm_dev->sh_mem_regions[i]);
+	}
+
 	mem_parcels = devm_kcalloc(dev, sec_vm_dev->fw_mem_count, sizeof(*mem_parcels), GFP_KERNEL);
 
 	for (i = 0; i < sec_vm_dev->fw_mem_count; i++) {
@@ -480,6 +495,116 @@ err_of_node_put:
 	return ret;
 }
 
+static int gh_vm_shared_mem_probe(struct gh_sec_vm_dev *sec_vm_dev)
+{
+	struct device *dev = sec_vm_dev->dev;
+	struct device_node *node;
+	struct resource res;
+	phys_addr_t phys;
+	ssize_t size;
+	int i;
+	int ret;
+	int count;
+
+	sec_vm_dev->sh_mem_count = of_count_phandle_with_args(dev->of_node, "shared-regions", NULL);
+
+	if (!sec_vm_dev->sh_mem_count) {
+		return 0;
+	}
+
+	sec_vm_dev->sh_mem_regions = devm_kcalloc(dev, sec_vm_dev->sh_mem_count,
+					sizeof(struct gh_shmem), GFP_KERNEL);
+	if (!sec_vm_dev->sh_mem_regions)
+		return -ENOMEM;
+
+	for (i = 0; i < sec_vm_dev->sh_mem_count; i++) {
+		node = of_parse_phandle(dev->of_node, "shared-regions", i);
+		if (!node) {
+			dev_err(dev, "DT error getting \"shared-regions\"\n");
+			return -EINVAL;
+		}
+
+		if (of_find_property(node, "qcom,dst-vmids", NULL)) {
+			count = of_property_count_elems_of_size(node, "qcom,dst-vmids", sizeof(u32));
+			if (!count) {
+				dev_err(dev, "No qcom,dst-vmids are specified\n");
+				return -EINVAL;
+			} else if (count > GH_MAX_VMIDS) {
+				dev_err(dev, "The number of \"qcom,dst-vmids\" exceed limitation\n");
+				return -EINVAL;
+			}
+
+			sec_vm_dev->sh_mem_regions[i].dst_vmids_count = count;
+
+			ret = of_property_read_u32_array(node, "qcom,dst-vmids", sec_vm_dev->sh_mem_regions[i].dst_vmids, count);
+			if (ret) {
+				dev_err(dev, "error %d getting \"qcom,dst-vmids\" resource\n", ret);
+				goto err_of_node_put;
+			}
+
+			ret = of_property_read_u32_array(node, "qcom,dst-perms", sec_vm_dev->sh_mem_regions[i].dst_perms, count);
+			if (ret) {
+				dev_err(dev, "error %d getting \"qcom,dst-perms\" resource\n", ret);
+				goto err_of_node_put;
+			}
+		} else
+			sec_vm_dev->sh_mem_regions[i].dst_vmids_count = 0;
+
+		if (of_find_property(node, "qcom,src-vmids", NULL)) {
+			count = of_property_count_elems_of_size(node, "qcom,src-vmids", sizeof(u32));
+			if (!count) {
+				dev_err(dev, "No qcom,src-vmids are specified\n");
+				return -EINVAL;
+			} else if (count > GH_MAX_VMIDS) {
+				dev_err(dev, "The number of \"qcom,src-vmids\" exceed limitation\n");
+				return -EINVAL;
+			}
+
+			sec_vm_dev->sh_mem_regions[i].src_vmids_count = count;
+
+			ret = of_property_read_u32_array(node, "qcom,src-vmids", sec_vm_dev->sh_mem_regions[i].src_vmids, count);
+			if (ret) {
+				dev_err(dev, "error %d getting \"qcom,src-vmids\" resource\n", ret);
+				goto err_of_node_put;
+			}
+
+			ret = of_property_read_u32_array(node, "qcom,src-perms", sec_vm_dev->sh_mem_regions[i].src_perms, count);
+			if (ret) {
+				dev_err(dev, "error %d getting \"qcom,src-perms\" resource\n", ret);
+				goto err_of_node_put;
+			}
+		} else
+			sec_vm_dev->sh_mem_regions[i].src_vmids_count = 0;
+
+		ret = of_property_read_u32(node, "gunyah-label", &sec_vm_dev->sh_mem_regions[i].gunyah_label);
+		if (ret) {
+			dev_err(dev, "DT error getting \"gunyah-label\": %d\n", ret);
+			return ret;
+		}
+
+		if (of_property_read_bool(node, "qcom,is-shared"))
+			sec_vm_dev->sh_mem_regions[i].is_shared = true;
+		else
+			sec_vm_dev->sh_mem_regions[i].is_shared = false;
+
+		ret = of_address_to_resource(node, 0, &res);
+		if (ret) {
+			dev_err(dev, "error %d getting \"memory-region\" resource\n",
+				ret);
+			goto err_of_node_put;
+		}
+
+		phys = res.start;
+		size = (size_t)resource_size(&res);
+		sec_vm_dev->sh_mem_regions[i].size = size;
+		sec_vm_dev->sh_mem_regions[i].base = phys;
+	}
+
+err_of_node_put:
+	of_node_put(node);
+	return ret;
+}
+
 static int gh_secure_vm_loader_probe(struct platform_device *pdev)
 {
 	struct gh_sec_vm_dev *sec_vm_dev;
@@ -515,6 +640,10 @@ static int gh_secure_vm_loader_probe(struct platform_device *pdev)
 	}
 
 	ret = gh_vm_loader_mem_probe(sec_vm_dev);
+	if (ret)
+		return ret;
+
+	ret = gh_vm_shared_mem_probe(sec_vm_dev);
 	if (ret)
 		return ret;
 

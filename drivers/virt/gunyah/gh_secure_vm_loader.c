@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
- * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
@@ -12,7 +12,6 @@
 #include <linux/dma-mapping.h>
 #include <linux/dma-direct.h>
 #include <linux/of_address.h>
-#include <linux/firmware/qcom/qcom_scm.h>
 #include <linux/firmware.h>
 #include <linux/module.h>
 #include <linux/kernel.h>
@@ -553,10 +552,6 @@ static int gh_secure_vm_loader_probe(struct platform_device *pdev)
 	ret = gh_parse_virtio_properties(dev, sec_vm_dev->vm_name);
 	if (ret)
 		goto err_unmap_fw;
-
-	ret = qcom_scm_enable_shm_bridge();
-	if (ret)
-		dev_err(dev, "Failed to enable shm bridge via SCM\n");
 
 	spin_lock(&gh_sec_vm_lock);
 	list_add(&sec_vm_dev->list, &gh_sec_vm_list);

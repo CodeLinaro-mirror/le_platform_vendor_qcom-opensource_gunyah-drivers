@@ -1332,19 +1332,14 @@ VIRTIO_PRINT_MARKER, label);
 	return 0;
 }
 
-int gh_virtio_mmio_exit(gh_vmid_t vmid, const char *vm_name)
+void gh_virtio_mmio_app_exit(gh_vmid_t vmid, const char *vm_name)
 {
 	struct virt_machine *vm;
 	struct virtio_backend_device *vb_dev;
 	unsigned long flags;
-	int ret = -EINVAL, i;
 	u32 refcount;
 
 	vm = find_vm_by_name(vm_name);
-	if (!vm) {
-		pr_debug("%s: VM name %s not found\n", VIRTIO_PRINT_MARKER, vm_name);
-		return 0;
-	}
 
 	spin_lock(&vm->vb_dev_lock);
 	list_for_each_entry(vb_dev, &vm->vb_dev_list, list) {
@@ -1360,14 +1355,35 @@ int gh_virtio_mmio_exit(gh_vmid_t vmid, const char *vm_name)
 		spin_unlock(&vm->vb_dev_lock);
 		if (refcount)
 			wait_event(vb_dev->notify_queue, !vb_dev->refcount);
+		spin_lock(&vm->vb_dev_lock);
+	}
+	spin_unlock(&vm->vb_dev_lock);
+}
 
+int gh_virtio_mmio_exit(gh_vmid_t vmid, const char *vm_name)
+{
+	struct virt_machine *vm;
+	struct virtio_backend_device *vb_dev;
+	int ret = -EINVAL, i;
+
+	vm = find_vm_by_name(vm_name);
+	if (!vm) {
+		pr_debug("%s: VM name %s not found\n", VIRTIO_PRINT_MARKER, vm_name);
+		return 0;
+	}
+
+	spin_lock(&vm->vb_dev_lock);
+	list_for_each_entry(vb_dev, &vm->vb_dev_list, list) {
+		spin_unlock(&vm->vb_dev_lock);
 		if (vb_dev->irq.fd.file) {
 			fdput(vb_dev->irq.fd);
 			vb_dev->irq.fd.file = NULL;
                 }
 		for (i = 0; i < MAX_IO_CONTEXTS; ++i) {
-			if (vb_dev->ioctx[i].ctx)
+			if (vb_dev->ioctx[i].ctx) {
 				eventfd_ctx_put(vb_dev->ioctx[i].ctx);
+				vb_dev->ioctx[i].ctx = NULL;
+			}
 			vb_dev->ioctx[i].fd = 0;
 		}
 		free_pages((unsigned long)vb_dev->config_data, 0);

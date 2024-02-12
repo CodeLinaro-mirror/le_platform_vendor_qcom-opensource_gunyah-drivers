@@ -275,6 +275,9 @@ void gh_destroy_vm(struct gh_vm *vm)
 	memset(vm->fw_name, 0, GH_VM_FW_NAME_MAX);
 
 clean_vm:
+	spin_lock(&vm_list_lock);
+	list_del(&vm->list);
+	spin_unlock(&vm_list_lock);
 	gh_rm_unregister_notifier(&vm->rm_nb);
 	mutex_destroy(&vm->vm_lock);
 	kfree(vm);
@@ -369,6 +372,8 @@ start_vcpu_run:
 			return ret;
 
 		ret = vm->exit_type;
+
+		gh_virtio_mmio_app_exit(vm->vmid, vm->fw_name);
 	}
 
 	return ret;
@@ -496,6 +501,8 @@ int gh_reclaim_mem(struct gh_vm *vm, struct gh_mem_parcel *mem_parcels,
 				&phys, size, vmid, ret);
 			return ret;
 		}
+
+		srcvmid = BIT(QCOM_SCM_VMID_HLOS) | BIT(vmid);
 	}
 
 	return ret;
@@ -549,9 +556,11 @@ int gh_provide_mem(struct gh_vm *vm, struct gh_mem_parcel *mem_parcels,
 		ret = qcom_scm_assign_mem(phys, size, &srcvmid, destVM, ARRAY_SIZE(destVM));
 		if (ret) {
 			pr_err("failed qcom_assign for %pa address of size %zx - subsys VMid %d rc:%d\n",
-				phys, size, vmid, ret);
+				&phys, size, vmid, ret);
 			goto err_assign_mem;
 		}
+
+		srcvmid = BIT(srcVM[0].vmid);
 	}
 
 	/*
@@ -576,6 +585,8 @@ int gh_provide_mem(struct gh_vm *vm, struct gh_mem_parcel *mem_parcels,
 			if (ret)
 				pr_err("failed qcom_assign for %pa address of size %zx - subsys VMid %d rc:%d\n",
 						&phys, size, srcVM[0].vmid, ret);
+
+			dstvmid = BIT(destVM[0].vmid) | BIT(destVM[1].vmid);
 		}
 
 err_assign_mem:

@@ -506,10 +506,14 @@ static int gh_vm_shared_mem_probe(struct gh_sec_vm_dev *sec_vm_dev)
 	int ret;
 	int count;
 
+	if (!of_find_property(dev->of_node, "shared-regions", NULL))
+		return 0;
+
 	sec_vm_dev->sh_mem_count = of_count_phandle_with_args(dev->of_node, "shared-regions", NULL);
 
 	if (!sec_vm_dev->sh_mem_count) {
-		return 0;
+		dev_err(dev, "No shared memory regions are specified\n");
+		return -EINVAL;
 	}
 
 	sec_vm_dev->sh_mem_regions = devm_kcalloc(dev, sec_vm_dev->sh_mem_count,

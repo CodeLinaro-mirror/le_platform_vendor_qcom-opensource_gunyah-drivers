@@ -7,6 +7,14 @@
 
 %define debug_package %{nil}
 
+%if %{with_oot_debug}
+    %define kpackage kernel-automotive-debug
+    %define kversion_with_debug %{kversion}+debug
+%else
+    %define kversion_with_debug %{kversion}
+    %define kpackage kernel-automotive
+%endif
+
 Name: %{kmod_name}
 Version: 1.0
 Release:        1%{?dist}
@@ -15,8 +23,9 @@ Summary: gunyah kernel drivers
 License: GPLv2
 Source0: %{name}-%{version}.tar.gz
 
-BuildRequires: kernel-automotive-devel-uname-r = %{kversion}
-Requires: kernel-automotive-core-uname-r = %{kversion}
+BuildRequires: kernel-automotive-devel-uname-r = %{kversion_with_debug}
+Requires: %{kpackage}-core-uname-r = %{kversion_with_debug}
+
 
 %description
 This is a rpm contains gunyah out of tree kernel modules.
@@ -25,11 +34,7 @@ This is a rpm contains gunyah out of tree kernel modules.
 %setup -qn %{name}
 
 %build
-%if %{with_oot_debug}
-KSRC=%{_usrsrc}/kernels/%{kversion}+debug
-%else
-KSRC=%{_usrsrc}/kernels/%{kversion}
-%endif
+KSRC=%{_usrsrc}/kernels/%{kversion_with_debug}
 make KERNEL_SRC=${KSRC} all
 
 %post
@@ -41,11 +46,7 @@ depmod -a
 %install
 mkdir -p %{buildroot}/usr/include/uapi/linux/
 install -m 755 include/uapi/linux/gunyah.h %{buildroot}/usr/include/uapi/linux/
-%if %{with_oot_debug}
-install_mod_path=%{buildroot}/usr/lib/modules/%{kversion}+debug
-%else
-install_mod_path=%{buildroot}/usr/lib/modules/%{kversion}
-%endif
+install_mod_path=%{buildroot}/usr/lib/modules/%{kversion_with_debug}
 mkdir -p ${install_mod_path}/extra/arch/arm64/gunyah/
 install -m 644 arch/arm64/gunyah/gh_arm_drv.ko  ${install_mod_path}/extra/arch/arm64/gunyah/gh_arm_drv.ko
 mkdir -p ${install_mod_path}/extra/drivers/virt/gunyah/
@@ -63,11 +64,7 @@ install -m 644 drivers/tty/hvc/hvc_gunyah.ko  ${install_mod_path}/extra/drivers/
 rm -rf $RPM_BUILD_ROOT
 
 %files
-%if %{with_oot_debug}
-%define kernel_module_path /usr/lib/modules/%{kversion}+debug
-%else
-%define kernel_module_path /usr/lib/modules/%{kversion}
-%endif
+%define kernel_module_path /usr/lib/modules/%{kversion_with_debug}
 %{kernel_module_path}/extra/arch/arm64/gunyah/gh_arm_drv.ko
 %{kernel_module_path}/extra/drivers/virt/gunyah/gh_dbl.ko
 %{kernel_module_path}/extra/drivers/virt/gunyah/gh_msgq.ko

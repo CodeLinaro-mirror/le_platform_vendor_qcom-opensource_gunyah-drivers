@@ -434,6 +434,14 @@ loop_back:
 		else if (vb_dev->vdev_event & EVENT_RESET_RQST) {
 			vb_dev->vdev_event &= ~EVENT_RESET_RQST;
 			vb_dev->cur_event = EVENT_RESET_RQST;
+			vb_dev->ack_driver_ok = 0;
+			for (i = 0; i < MAX_IO_CONTEXTS; ++i) {
+				if (vb_dev->ioctx[i].ctx) {
+					eventfd_ctx_put(vb_dev->ioctx[i].ctx);
+					vb_dev->ioctx[i].ctx = NULL;
+				}
+				vb_dev->ioctx[i].fd = 0;
+			}
 			if (vb_dev->vdev_event)
 				vb_dev->evt_avail = 1;
 		} else if (vb_dev->vdev_event & EVENT_DRIVER_OK) {

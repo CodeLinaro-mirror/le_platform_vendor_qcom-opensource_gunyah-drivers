@@ -23,6 +23,7 @@
 
 #include "gh_private.h"
 #include "gh_secure_vm_virtio_backend.h"
+#include "gvm_dump_debugfs.h"
 
 #define PAGE_ROUND_UP(x) ((((u64)(x) + (PAGE_SIZE - 1)) / PAGE_SIZE)  * PAGE_SIZE)
 
@@ -335,6 +336,8 @@ long gh_vm_ioctl_set_fw_name(struct gh_vm *vm, unsigned long arg)
 
 	dev = sec_vm_dev->dev;
 
+	cleanup_gvm_ramdump_ctx(sec_vm_dev->vmid);
+
 	ret = gh_sec_vm_loader_load_fw(sec_vm_dev, vm);
 	if (ret) {
 		dev_err(dev, "Loading secure VM %s to memory failed %ld\n",
@@ -377,6 +380,7 @@ int gh_secure_vm_loader_reclaim_fw(struct gh_vm *vm)
 	char *fw_name;
 	int ret = 0;
 	int i;
+	bool is_static = true;
 
 	fw_name = vm->fw_name;
 	sec_vm_dev = get_sec_vm_dev_by_name(fw_name);
@@ -401,11 +405,18 @@ int gh_secure_vm_loader_reclaim_fw(struct gh_vm *vm)
 	ret = gh_reclaim_mem(vm, mem_parcels, sec_vm_dev->fw_mem_count,
 					sec_vm_dev->system_vm);
 
-	for (i = 0; i < sec_vm_dev->fw_mem_count; i++) {
-		if (!ret && !sec_vm_dev->fw_mem_regions[i].is_static) {
-			dma_free_coherent(dev, sec_vm_dev->fw_mem_regions[i].fw_size, sec_vm_dev->fw_mem_regions[i].fw_virt,
+	if (!ret) {
+		for (i = 0; i < sec_vm_dev->fw_mem_count; i++) {
+			if (!sec_vm_dev->fw_mem_regions[i].is_static) {
+				is_static = false;
+				dma_free_coherent(dev, sec_vm_dev->fw_mem_regions[i].fw_size, sec_vm_dev->fw_mem_regions[i].fw_virt,
 					phys_to_dma(dev, sec_vm_dev->fw_mem_regions[i].fw_phys));
+			}
 		}
+
+		/* GVM mem reclaim succeeded, collect the GVM ramdump if ramdump collection is enabled */
+		if (is_static)
+			collect_gvm_ramdump(sec_vm_dev->dev);
 	}
 
 	return ret;

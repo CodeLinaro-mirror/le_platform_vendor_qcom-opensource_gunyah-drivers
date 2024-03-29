@@ -8,6 +8,8 @@ EXTRA_CFLAGS += -DCONFIG_GH_DBL=1 \
 		-DCONFIG_GH_RM_DRV=1 \
 		-DCONFIG_GH_SECURE_VM_LOADER=1 \
 		-DCONFIG_GH_ARM64_DRV=1 \
+		-DCONFIG_QCOM_GVM_DUMP=1 \
+		-DCONFIG_QCOM_SANITIZE_GVM_MEMORY=1 \
 		-Iinclude/linux \
 
 obj-$(CONFIG_GH_VIRT_WATCHDOG) += gh_virt_wdt.o
@@ -23,7 +25,7 @@ obj-$(CONFIG_GH_GUEST_POPS) += gh_guest_pops.o
 
 obj-m += gunyah.o
 gunyah-y += gh_main.o gh_secure_vm_virtio_backend.o
-gunyah-y += gh_secure_vm_loader.o
+gunyah-y += gh_secure_vm_loader.o gvm_dump_debugfs.o
 gunyah-$(CONFIG_GH_PROXY_SCHED)	+= gh_proxy_sched.o
 
 CFLAGS_gh_secure_vm_virtio_backend.o = -DDYNAMIC_DEBUG_MODULE

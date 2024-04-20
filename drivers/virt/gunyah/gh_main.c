@@ -509,6 +509,59 @@ int gh_reclaim_mem(struct gh_vm *vm, struct gh_mem_parcel *mem_parcels,
 	return ret;
 }
 
+static void set_vmperm_bit(struct qcom_scm_vmperm *vmperm, u64 *bit_vmid,
+									 gh_vmid_t vmid, gh_vm_perm_t perm)
+{
+	vmperm->vmid = vmid;
+	vmperm->perm = perm;
+	*bit_vmid |= BIT(vmid);
+}
+
+int gh_reclaim_shmem(struct gh_vm *vm, struct gh_shmem *shmems)
+{
+	gh_vmid_t vmid = vm->vmid;
+	int i;
+	int ret = 0;
+	int dst_vmids_count = 1;
+	struct qcom_scm_vmperm *dstVM;
+	phys_addr_t phys = shmems->base;
+	ssize_t size = shmems->size;
+	u64 srcvmid = 0;
+	u64 dstvmid = 0;
+
+	dst_vmids_count += shmems->src_vmids_count;
+
+	dstVM = kzalloc(dst_vmids_count * sizeof(struct qcom_scm_vmperm),
+						GFP_KERNEL);
+	if (!dstVM)
+		return -ENOMEM;
+
+	for (i = 0; i < shmems->src_vmids_count; i++)
+		set_vmperm_bit(&dstVM[i], &dstvmid, shmems->src_vmids[i], shmems->src_perms[i]);
+
+	set_vmperm_bit(&dstVM[i], &dstvmid, QCOM_SCM_VMID_HLOS, QCOM_SCM_PERM_RWX);
+
+	for (i = 0; i < shmems->dst_vmids_count; i++)
+		srcvmid |= BIT(shmems->dst_vmids[i]);
+
+	srcvmid |= BIT(vmid);
+
+	if (shmems->is_shared)
+		srcvmid |= BIT(QCOM_SCM_VMID_HLOS);
+
+	ret = gh_rm_mem_reclaim(shmems->shmem_handle, 0);
+	if (ret)
+		pr_err("Failed to reclaim memory for %d, %d\n",
+					vm->vmid, ret);
+
+	ret = qcom_scm_assign_mem(phys, size, &srcvmid, dstVM, dst_vmids_count);
+	if (ret)
+		pr_err("failed qcom_assign for %pa address of size %zx - subsys VMid %d rc:%d\n",
+						 &phys, size, dstVM[0].vmid, ret);
+
+	return ret;
+}
+
 int gh_provide_mem(struct gh_vm *vm, struct gh_mem_parcel *mem_parcels,
 					u32 mem_parcel_count, bool is_system_vm)
 {
@@ -591,6 +644,119 @@ int gh_provide_mem(struct gh_vm *vm, struct gh_mem_parcel *mem_parcels,
 		}
 
 err_assign_mem:
+	kfree(acl_desc);
+	kfree(sgl_desc);
+	return ret;
+}
+
+int gh_provide_shmem(struct gh_vm *vm, struct gh_shmem *shmems)
+{
+	gh_vmid_t vmid = vm->vmid;
+	struct gh_acl_desc *acl_desc;
+	struct gh_sgl_desc *sgl_desc;
+	int i;
+	int ret = 0;
+	int src_vmids_count = 1;
+	int dst_vmids_count = 1;
+	struct qcom_scm_vmperm *srcVM;
+	struct qcom_scm_vmperm *dstVM;
+	phys_addr_t phys = shmems->base;
+	ssize_t size = shmems->size;
+	u64 srcvmid = 0;
+	u64 dstvmid = 0;
+
+	src_vmids_count += shmems->src_vmids_count;
+	srcVM = kzalloc(src_vmids_count * sizeof(struct qcom_scm_vmperm),
+						GFP_KERNEL);
+	if (!srcVM)
+		return -ENOMEM;
+
+	for (i = 0; i < shmems->src_vmids_count; i++)
+		set_vmperm_bit(&srcVM[i], &srcvmid, shmems->src_vmids[i], shmems->src_perms[i]);
+
+	set_vmperm_bit(&srcVM[i], &srcvmid, QCOM_SCM_VMID_HLOS, QCOM_SCM_PERM_RWX);
+
+	if (shmems->is_shared) {
+		dst_vmids_count = shmems->dst_vmids_count + 2;
+		dstVM = kzalloc(dst_vmids_count * sizeof(struct qcom_scm_vmperm),
+							GFP_KERNEL);
+		if (!dstVM) {
+			kfree(srcVM);
+			return -ENOMEM;
+		}
+
+		for (i = 0; i < shmems->dst_vmids_count; i++)
+			set_vmperm_bit(&dstVM[i], &dstvmid, shmems->dst_vmids[i], shmems->dst_perms[i]);
+
+		set_vmperm_bit(&dstVM[i], &dstvmid, QCOM_SCM_VMID_HLOS, QCOM_SCM_PERM_RWX);
+		set_vmperm_bit(&dstVM[++i], &dstvmid, vmid, QCOM_SCM_PERM_RWX);
+	} else {
+		dst_vmids_count += shmems->dst_vmids_count;
+		dstVM = kzalloc(dst_vmids_count * sizeof(struct qcom_scm_vmperm),
+							GFP_KERNEL);
+		if (!dstVM) {
+			kfree(srcVM);
+			return -ENOMEM;
+		}
+
+		for (i = 0; i < shmems->dst_vmids_count; i++)
+			set_vmperm_bit(&dstVM[i], &dstvmid, shmems->dst_vmids[i], shmems->dst_perms[i]);
+
+		set_vmperm_bit(&dstVM[i], &dstvmid, vmid, QCOM_SCM_PERM_RWX);
+	}
+
+	acl_desc = kzalloc(offsetof(struct gh_acl_desc, acl_entries[dst_vmids_count]),
+			GFP_KERNEL);
+	if (!acl_desc) {
+		kfree(srcVM);
+		kfree(dstVM);
+		return -ENOMEM;
+	}
+
+	acl_desc->n_acl_entries = dst_vmids_count;
+
+	for (i = 0; i < dst_vmids_count; i++) {
+		acl_desc->acl_entries[i].vmid = dstVM[i].vmid;
+		acl_desc->acl_entries[i].perms = dstVM[i].perm;
+	}
+
+	sgl_desc = kzalloc(offsetof(struct gh_sgl_desc, sgl_entries[1]),
+			GFP_KERNEL);
+	if (!sgl_desc) {
+		kfree(srcVM);
+		kfree(dstVM);
+		kfree(acl_desc);
+		return -ENOMEM;
+	}
+
+	sgl_desc->n_sgl_entries = 1;
+	sgl_desc->sgl_entries[0].ipa_base = phys;
+	sgl_desc->sgl_entries[0].size = size;
+
+	ret = qcom_scm_assign_mem(phys, size, &srcvmid, dstVM, dst_vmids_count);
+	if (ret) {
+		pr_err("failed qcom_assign for %pa address of size %zx - subsys VMid %d rc:%d\n",
+			 &phys, size, vmid, ret);
+		goto err_assign_mem;
+	}
+
+	if (shmems->is_shared) {
+		ret = gh_rm_mem_share(GH_RM_MEM_TYPE_NORMAL, 0, shmems->gunyah_label, acl_desc,
+								sgl_desc, NULL, &shmems->shmem_handle);
+	} else {
+		ret = gh_rm_mem_lend (GH_RM_MEM_TYPE_NORMAL, 0, shmems->gunyah_label, acl_desc,
+								         sgl_desc, NULL, &shmems->shmem_handle);
+	}
+	if (ret) {
+		ret = qcom_scm_assign_mem(phys, size, &dstvmid, srcVM, src_vmids_count);
+		if (ret)
+			pr_err("failed qcom_assign for %pa address of size %zx - subsys VMid %d rc:%d\n",
+					&phys, size, srcVM[0].vmid, ret);
+	}
+
+err_assign_mem:
+	kfree(srcVM);
+	kfree(dstVM);
 	kfree(acl_desc);
 	kfree(sgl_desc);
 	return ret;

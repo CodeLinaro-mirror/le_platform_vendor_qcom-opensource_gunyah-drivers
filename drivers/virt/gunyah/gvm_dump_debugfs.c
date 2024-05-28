@@ -123,16 +123,15 @@ static int get_ramdump_id(struct file *file, int num_mem_regions)
 	int ramdump_id;
 	int ret;
 
-	name = strchr(file->f_path.dentry->d_iname, '-');
+	name = strchr(file->f_path.dentry->d_iname, '_');
 	if (name) {
 		name++;
-		ret = kstrtoint(name, 10, &ramdump_id);
-		if (ret < 0) {
-			pr_err("%s: Not a valid file %d\n", GVM_RAMDUMP_PRINT_MARKER, ret);
-			return ret;
+		if (!isdigit(*name)) {
+			pr_err("%s: Not a valid file : %s\n", GVM_RAMDUMP_PRINT_MARKER);
+			return -EINVAL;
 		}
-
-		if ((ramdump_id < 0) || (ramdump_id >= num_mem_regions)) {
+		ramdump_id = simple_strtol(name, NULL, 10);
+		if (ramdump_id >= num_mem_regions) {
 			pr_err("%s: Not a valid file \n", GVM_RAMDUMP_PRINT_MARKER);
 			return -EINVAL;
 		}
@@ -381,7 +380,7 @@ static int create_gvm_ramdump_debugfs(struct device *dev)
 	}
 
 	for (idx = 0; idx < gvm_ctx->num_mem_regions; idx++) {
-		scnprintf(name, sizeof(name), "ramdump-%d", idx);
+		scnprintf(name, sizeof(name), "DDR_%d.bin", idx);
 		debugfs_create_file_size(name, 0444, gvm_ctx->gvm_ramdump_dir,
 					 gvm_ctx, &gvm_ramdump_ops, gvm_ctx->ramdump_size[idx]);
 	}

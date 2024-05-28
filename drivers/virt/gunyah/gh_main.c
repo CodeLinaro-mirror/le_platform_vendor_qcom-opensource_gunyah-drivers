@@ -15,6 +15,9 @@
 #include <linux/fs.h>
 #include <linux/firmware/qcom/qcom_scm.h>
 #include <linux/gunyah.h>
+#include <linux/errno.h>
+#include <linux/types.h>
+#include <linux/limits.h>
 
 #include "gh_secure_vm_virtio_backend.h"
 #include "gh_secure_vm_loader.h"
@@ -878,11 +881,50 @@ static int gh_vm_release(struct inode *inode, struct file *filp)
 	return 0;
 }
 
+/**
+ * gh_vm_llseek - llseek implementation just for passing sanity check before mmap
+ * @file:	file structure to seek on
+ * @offset:	file offset to seek to
+ * @whence:	type of seek
+ *
+ * Note! This is an implementation of ->llseek useable for the special case
+ * when userspace expects the seek checking to succeed and never leads to
+ * extend EOF before doing mmap. Therefore, It seems that file buffer is
+ * LONG_MAX bytes.
+ */
+
+static loff_t gh_vm_llseek(struct file *file, loff_t offset, int whence) {
+	loff_t new_pos;
+	switch (whence) {
+		case SEEK_CUR:
+			new_pos = file->f_pos + offset;
+			break;
+		case SEEK_END:
+			new_pos = LONG_MAX + offset;
+			break;
+		case SEEK_SET:
+			new_pos = offset;
+			break;
+		default:
+			pr_err("whence %d is not support!\n", whence);
+			return -EINVAL;
+	}
+
+	if (new_pos < 0 || new_pos > LONG_MAX) {
+		pr_err("out of boundary\n");
+		return -EINVAL;
+	}
+
+	file->f_pos = new_pos;
+
+	return new_pos;
+}
+
 static const struct file_operations gh_vm_fops = {
 	.unlocked_ioctl = gh_vm_ioctl,
 	.mmap = gh_vm_mmap,
 	.release = gh_vm_release,
-	.llseek = noop_llseek,
+	.llseek = gh_vm_llseek,
 };
 
 static struct gh_vm *gh_create_vm(void)
@@ -936,6 +978,8 @@ static long gh_dev_ioctl_create_vm(unsigned long arg)
 		err = PTR_ERR(file);
 		goto err_put_fd;
 	}
+
+	file->f_mode |= FMODE_LSEEK;
 
 	fd_install(fd, file);
 

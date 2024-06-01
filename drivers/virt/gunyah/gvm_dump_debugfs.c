@@ -15,6 +15,7 @@
 
 #define GVM_RAMDUMP_PRINT_MARKER	"gh_gvm_ramdump_debugfs"
 #define DUMP_INFO_BUFFER_SIZE		512
+#define LOAD_CMM_BUFFER_SIZE		512
 
 /*
  * Create the list to add ramdump context of all the GVM during ramdump
@@ -123,11 +124,11 @@ static int get_ramdump_id(struct file *file, int num_mem_regions)
 	int ramdump_id;
 	int ret;
 
-	name = strchr(file->f_path.dentry->d_iname, '_');
+	name = strchr(file->f_path.dentry->d_iname, '.');
 	if (name) {
-		name++;
+		name--;
 		if (!isdigit(*name)) {
-			pr_err("%s: Not a valid file : %s\n", GVM_RAMDUMP_PRINT_MARKER);
+			pr_err("%s: Not a valid file \n", GVM_RAMDUMP_PRINT_MARKER);
 			return -EINVAL;
 		}
 		ramdump_id = simple_strtol(name, NULL, 10);
@@ -264,11 +265,61 @@ static ssize_t dump_info_read(struct file *file, char __user *ubuf,
 		strlcat(d_info_buf, reg_name, sizeof(d_info_buf));
 		curr_buf_len += reg_len;
 		append_len = snprintf(d_info_buf + curr_buf_len, sizeof(d_info_buf) - curr_buf_len,
-				      "DDR_%d.bin\n", idx);
+				      "VMDDRCS%d.bin\n", idx);
 		curr_buf_len += append_len;
 	}
 
 	ret = simple_read_from_buffer(ubuf, count, ppos, d_info_buf, sizeof(d_info_buf));
+	if (ret < 0) {
+		pr_err("%s: Read from buffer failed %d\n", GVM_RAMDUMP_PRINT_MARKER);
+		return -1;
+	}
+
+	return ret;
+}
+
+static ssize_t load_cmm_read(struct file *file, char __user *ubuf,
+                              size_t count, loff_t *ppos)
+{
+	ssize_t ret = 0;
+	struct inode *in = file->f_inode;
+	struct gvm_ramdump_ctx *gvm_prv_ctx = (struct gvm_ramdump_ctx *)in->i_private;
+	char load_cmm_buf[LOAD_CMM_BUFFER_SIZE] = {'\0'};
+	const char* cmm_cmd = "d.load.binary ";
+	size_t cmm_cmd_len = strlen(cmm_cmd);
+	const char* cmm_cmd_2 = "/noclear\n";
+	size_t cmm_cmd2_len = strlen(cmm_cmd_2);
+	int curr_buf_len = 0;
+
+	for(int idx = 0; idx < gvm_prv_ctx->num_mem_regions; idx++) {
+		if (curr_buf_len >= LOAD_CMM_BUFFER_SIZE || curr_buf_len + cmm_cmd_len >= LOAD_CMM_BUFFER_SIZE) {
+			pr_err("%s: Insufficient dump info buffer space\n", GVM_RAMDUMP_PRINT_MARKER);
+			return -1;
+		}
+
+		strlcat(load_cmm_buf, cmm_cmd, sizeof(load_cmm_buf));
+		curr_buf_len += cmm_cmd_len;
+		int append_len = snprintf(load_cmm_buf + curr_buf_len, sizeof(load_cmm_buf) - curr_buf_len,
+					  "VMDDRCS%d.bin ", idx);
+		curr_buf_len += append_len;
+		if (curr_buf_len >= LOAD_CMM_BUFFER_SIZE) {
+			pr_err("%s: Insufficient dump info buffer space\n", GVM_RAMDUMP_PRINT_MARKER);
+			return -1;
+		}
+
+		append_len = snprintf(load_cmm_buf + curr_buf_len, sizeof(load_cmm_buf) - curr_buf_len,
+				      "0x%lx ", gvm_prv_ctx->ramdump_start_addr[idx]);
+		curr_buf_len += append_len;
+		if (curr_buf_len >= LOAD_CMM_BUFFER_SIZE) {
+			pr_err("%s: Insufficient dump info buffer space\n", GVM_RAMDUMP_PRINT_MARKER);
+			return -1;
+		}
+
+		strlcat(load_cmm_buf, cmm_cmd_2, sizeof(load_cmm_buf));
+		curr_buf_len += cmm_cmd2_len;
+	}
+
+	ret = simple_read_from_buffer(ubuf, count, ppos, load_cmm_buf, sizeof(load_cmm_buf));
 	if (ret < 0) {
 		pr_err("%s: Read from buffer failed %d\n", GVM_RAMDUMP_PRINT_MARKER);
 		return -1;
@@ -285,6 +336,10 @@ static const struct file_operations gvm_ramdump_ops = {
 
 static const struct file_operations dump_info_ops = {
 	.read = dump_info_read
+};
+
+static const struct file_operations load_cmm_ops = {
+	.read = load_cmm_read
 };
 
 static int get_gvm_resource(struct gvm_ramdump_ctx *gvm_ctx, struct device *dev)
@@ -380,13 +435,15 @@ static int create_gvm_ramdump_debugfs(struct device *dev)
 	}
 
 	for (idx = 0; idx < gvm_ctx->num_mem_regions; idx++) {
-		scnprintf(name, sizeof(name), "DDR_%d.bin", idx);
+		scnprintf(name, sizeof(name), "VMDDRCS%d.bin", idx);
 		debugfs_create_file_size(name, 0444, gvm_ctx->gvm_ramdump_dir,
 					 gvm_ctx, &gvm_ramdump_ops, gvm_ctx->ramdump_size[idx]);
 	}
 
 	debugfs_create_file_size("dump_info.txt", 0444, gvm_ctx->gvm_ramdump_dir,
 				 gvm_ctx, &dump_info_ops, DUMP_INFO_BUFFER_SIZE);
+	debugfs_create_file_size("load.cmm", 0444, gvm_ctx->gvm_ramdump_dir,
+				 gvm_ctx, &load_cmm_ops, LOAD_CMM_BUFFER_SIZE);
 	mutex_lock(&gvm_ramdump_list_mutex);
 	list_add(&gvm_ctx->list, &gvm_ramdump_list);
 	mutex_unlock(&gvm_ramdump_list_mutex);

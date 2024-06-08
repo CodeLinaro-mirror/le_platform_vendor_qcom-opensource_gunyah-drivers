@@ -5,6 +5,7 @@
 
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
 
+#include <linux/anon_inodes.h>
 #include <linux/soc/qcom/mdt_loader.h>
 #include <linux/gunyah/gh_rm_drv.h>
 #include <linux/platform_device.h>
@@ -18,6 +19,7 @@
 #include <linux/mutex.h>
 #include <linux/slab.h>
 #include <linux/list.h>
+#include <linux/file.h>
 #include <linux/fs.h>
 #include <linux/of.h>
 
@@ -367,6 +369,114 @@ long gh_vm_ioctl_get_fw_name(struct gh_vm *vm, unsigned long arg)
 	mutex_unlock(&vm->vm_lock);
 
 	if (copy_to_user((void __user *)arg, &vm_fw_name, sizeof(vm_fw_name)))
+		return -EFAULT;
+
+	return 0;
+}
+
+long gh_vm_ioctl_get_mem_count(struct gh_vm *vm)
+{
+	struct gh_sec_vm_dev *sec_vm_dev;
+	u32 mem_count;
+
+	mutex_lock(&vm->vm_lock);
+
+	sec_vm_dev = get_sec_vm_dev_by_name(vm->fw_name);
+	if (!sec_vm_dev) {
+		pr_err("secure vm %s not supported\n", vm->fw_name);
+		mutex_unlock(&vm->vm_lock);
+		return -EINVAL;
+	}
+
+	mem_count = sec_vm_dev->fw_mem_count;
+
+	mutex_unlock(&vm->vm_lock);
+
+	return mem_count;
+}
+
+static int gh_vm_mem_mmap(struct file *file, struct vm_area_struct *vma)
+{
+	struct gh_sec_vm_fw_mem *mem_region = file->private_data;
+	size_t mmap_size;
+
+	if (!mem_region)
+		return -EINVAL;
+
+	mmap_size = vma->vm_end - vma->vm_start;
+	if (mmap_size != mem_region->fw_size)
+		return -EINVAL;
+
+	vma->vm_flags = vma->vm_flags | VM_DONTEXPAND | VM_DONTDUMP;
+
+	if (io_remap_pfn_range(vma, vma->vm_start,
+			__phys_to_pfn(mem_region->fw_phys),
+			mmap_size, vma->vm_page_prot)) {
+		pr_err("%s: ioremap_pfn_range failed\n", __func__);
+		return -EAGAIN;
+	}
+
+	return 0;
+}
+
+static const struct file_operations gh_vm_mem_fops = {
+	.owner = THIS_MODULE,
+	.mmap = gh_vm_mem_mmap,
+	.llseek = noop_llseek,
+};
+
+long gh_vm_ioctl_get_mem_region(struct gh_vm *vm, unsigned long arg)
+{
+	struct gh_sec_vm_dev *sec_vm_dev;
+	struct vm_mem_region mem_region;
+	u8 mem_idx;
+	int fd;
+	char name[SZ_16];
+	struct file *file;
+
+	if (copy_from_user(&mem_region, arg,
+				sizeof(mem_region)))
+		return -EFAULT;
+
+	mutex_lock(&vm->vm_lock);
+
+	sec_vm_dev = get_sec_vm_dev_by_name(vm->fw_name);
+	if (!sec_vm_dev) {
+		pr_err("secure vm %s not supported\n", vm->fw_name);
+		mutex_unlock(&vm->vm_lock);
+		return -EINVAL;
+	}
+
+	mem_idx = mem_region.idx;
+	if (mem_idx >= sec_vm_dev->fw_mem_count) {
+		mutex_unlock(&vm->vm_lock);
+		return -EINVAL;
+	}
+
+	fd = get_unused_fd_flags(O_CLOEXEC);
+	if (fd < 0) {
+		mutex_unlock(&vm->vm_lock);
+		return -EFAULT;
+	}
+
+	snprintf(name, sizeof(name), "gh-mem:%d", mem_idx);
+	file = anon_inode_getfile(name, &gh_vm_mem_fops,
+			&(sec_vm_dev->fw_mem_regions[mem_idx]), O_RDWR);
+	if (IS_ERR(file)) {
+		mutex_unlock(&vm->vm_lock);
+		return -EFAULT;
+	}
+
+	fd_install(fd, file);
+
+	mem_region.fw_phys = sec_vm_dev->fw_mem_regions[mem_idx].fw_phys;
+	mem_region.fw_size = sec_vm_dev->fw_mem_regions[mem_idx].fw_size;
+	mem_region.fd = fd;
+
+	mutex_unlock(&vm->vm_lock);
+
+	if (copy_to_user(arg, &mem_region,
+				sizeof(mem_region)))
 		return -EFAULT;
 
 	return 0;

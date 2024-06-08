@@ -856,6 +856,12 @@ static long gh_vm_ioctl(struct file *filp,
 	case GH_VM_GET_VCPU_COUNT:
 		ret = gh_vm_ioctl_get_vcpu_count(vm);
 		break;
+	case GH_VM_GET_MEM_COUNT:
+		ret = gh_vm_ioctl_get_mem_count(vm);
+		break;
+	case GH_VM_GET_MEM_REGION:
+		ret = gh_vm_ioctl_get_mem_region(vm, arg);
+		break;
 	default:
 		ret = gh_virtio_backend_ioctl(vm->fw_name, cmd, arg);
 		break;

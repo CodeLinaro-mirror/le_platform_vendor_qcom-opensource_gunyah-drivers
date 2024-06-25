@@ -22,6 +22,8 @@
 #include <linux/file.h>
 #include <linux/fs.h>
 #include <linux/of.h>
+#include <linux/errno.h>
+#include <linux/types.h>
 
 #include "gh_private.h"
 #include "gh_secure_vm_virtio_backend.h"
@@ -419,10 +421,56 @@ static int gh_vm_mem_mmap(struct file *file, struct vm_area_struct *vma)
 	return 0;
 }
 
+
+/**
+ * gh_vm_mem_llseek - llseek implementation for non-protected memmory
+ * @file:	file structure to seek on
+ * @offset:	file offset to seek to
+ * @whence:	type of seek
+ */
+
+static loff_t gh_vm_mem_llseek(struct file *file, loff_t offset, int whence)
+{
+	loff_t new_pos;
+	struct gh_sec_vm_fw_mem *mem_region = file->private_data;
+	ssize_t mem_region_size;
+
+	if (!mem_region)
+		return -EINVAL;
+
+	mem_region_size = mem_region->fw_size;
+	if (mem_region_size == 0)
+		return -EINVAL;
+
+	switch (whence) {
+		case SEEK_CUR:
+			new_pos = file->f_pos + offset;
+			break;
+		case SEEK_END:
+			new_pos = mem_region_size + offset;
+			break;
+		case SEEK_SET:
+			new_pos = offset;
+			break;
+		default:
+			pr_err("whence %d is not support!\n", whence);
+			return -EINVAL;
+	}
+
+	if (new_pos < 0 || new_pos > mem_region_size) {
+		pr_err("out of boundary\n");
+		return -EINVAL;
+	}
+
+	file->f_pos = new_pos;
+
+	return new_pos;
+}
+
 static const struct file_operations gh_vm_mem_fops = {
 	.owner = THIS_MODULE,
 	.mmap = gh_vm_mem_mmap,
-	.llseek = noop_llseek,
+	.llseek = gh_vm_mem_llseek,
 };
 
 long gh_vm_ioctl_get_mem_region(struct gh_vm *vm, unsigned long arg)
@@ -467,6 +515,7 @@ long gh_vm_ioctl_get_mem_region(struct gh_vm *vm, unsigned long arg)
 		return -EFAULT;
 	}
 
+	file->f_mode |= FMODE_LSEEK;
 	fd_install(fd, file);
 
 	mem_region.fw_phys = sec_vm_dev->fw_mem_regions[mem_idx].fw_phys;

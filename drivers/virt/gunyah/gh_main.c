@@ -25,7 +25,8 @@
 #include "gh_private.h"
 #include "gvm_dump_debugfs.h"
 
-#define MAX_VCPU_NAME	20 /* gh-vcpu:u32_max +1 */
+#define MAX_VCPU_NAME		20 /* gh-vcpu:u32_max +1 */
+#define MAX_VM_SUSP_LABEL	18 /* vm_u16_max_susp_irq + 1 */
 
 SRCU_NOTIFIER_HEAD_STATIC(gh_vm_notifier);
 static DEFINE_SPINLOCK(vm_list_lock);
@@ -56,6 +57,38 @@ static struct gh_vm *find_vm_by_name(const char *vm_name)
 	spin_lock(&vm_list_lock);
 	list_for_each_entry(tmp, &vm_list, list) {
 		if (!strcmp(tmp->fw_name, vm_name)) {
+			vm = tmp;
+			break;
+		}
+	}
+	spin_unlock(&vm_list_lock);
+
+	return vm;
+}
+
+static struct gh_vm* find_vm_by_id(gh_vmid_t vmid)
+{
+	struct gh_vm *vm = NULL, *tmp;
+
+	spin_lock(&vm_list_lock);
+	list_for_each_entry(tmp, &vm_list, list) {
+		if (tmp->vmid == vmid) {
+			vm = tmp;
+			break;
+		}
+	}
+	spin_unlock(&vm_list_lock);
+
+	return vm;
+}
+
+static struct gh_vm* find_vm_by_susp_irq(int irq)
+{
+	struct gh_vm *vm = NULL, *tmp;
+
+	spin_lock(&vm_list_lock);
+	list_for_each_entry(tmp, &vm_list, list) {
+		if (tmp->susp_irq == irq) {
 			vm = tmp;
 			break;
 		}
@@ -937,6 +970,7 @@ static struct gh_vm *gh_create_vm(void)
 		return ERR_PTR(-ENOMEM);
 
 	mutex_init(&vm->vm_lock);
+	spin_lock_init(&vm->susp_vm_lock);
 	vm->rm_nb.priority = 1;
 	vm->rm_nb.notifier_call = gh_vm_rm_notifier_fn;
 	ret = gh_rm_register_notifier(&vm->rm_nb);
@@ -950,6 +984,7 @@ static struct gh_vm *gh_create_vm(void)
 	init_waitqueue_head(&vm->vm_exit_ioc_wait);
 	vm->status.vm_status = GH_RM_VM_STATUS_NO_STATE;
 	vm->exit_type = -EINVAL;
+	vm->vm_suspend_type = VM_STATE_RUNNING;
 	spin_lock(&vm_list_lock);
 	list_add(&vm->list, &vm_list);
 	spin_unlock(&vm_list_lock);
@@ -1064,12 +1099,82 @@ void gh_uevent_notify_change(unsigned int type, struct gh_vm *vm)
 		add_uevent_var(env, "EVENT=destroy");
 		add_uevent_var(env, "vm_exit=%d", vm->exit_type);
 	}
+	else if (type == GH_EVENT_VM_SUSPENDED) {
+		add_uevent_var(env, "EVENT=suspended");
+		add_uevent_var(env, "vm_suspend_type=%lld", vm->vm_suspend_type);
+	}
 
 	add_uevent_var(env, "vm_name=%s", vm->fw_name);
 	env->envp[env->envp_idx++] = NULL;
 	kobject_uevent_env(&gh_dev.this_device->kobj, KOBJ_CHANGE, env->envp);
 	kfree(env);
 }
+
+static irqreturn_t gh_susp_irq_handler(int irq, void *data)
+{
+	int ret;
+	uint64_t vpmg_state;
+	gh_capid_t vpmg_cap_id;
+	struct gh_vm *vm;
+	unsigned long flags;
+
+	vm = find_vm_by_susp_irq(irq);
+	if (!vm){
+		pr_err("Failed to get vm for irq=%d\n", irq);
+		return IRQ_HANDLED;
+	}
+
+	ret = gh_hcall_vpm_group_get_state(vm->cap_id, &vpmg_state);
+	if (ret) {
+		pr_err("Failed to get VPM Group state for cap_id=%llu ret=%d\n",
+			vpmg_cap_id, ret);
+		return IRQ_HANDLED;
+	}
+
+	if (vpmg_state == VM_STATE_RUNNING) {
+		pr_debug("VM is in running state\n");
+	}
+	else if (vpmg_state == VM_STATE_CPU_SUSPENDED ||
+		 vpmg_state == VM_STATE_SYSTEM_SUSPENDED) {
+		spin_lock_irqsave(&vm->susp_vm_lock, flags);
+		vm->vm_suspend_type = vpmg_state;
+		spin_unlock_irqrestore(&vm->susp_vm_lock, flags);
+		gh_uevent_notify_change(GH_EVENT_VM_SUSPENDED, vm);
+		pr_debug("VM is in system suspend state\n");
+	}
+	else
+		pr_err("VPM Group state invalid/non-existent\n");
+
+	return IRQ_HANDLED;
+}
+
+static int vm_vpm_grp_info(gh_vmid_t vmid, gh_capid_t cap_id, int virq_num)
+{
+	int ret = 0;
+	struct gh_vm *vm;
+	char susp_label[MAX_VM_SUSP_LABEL];
+
+	if (virq_num < 0) {
+		pr_err("%s: Invalid IRQ number\n", __func__);
+		return -EINVAL;
+	}
+
+	snprintf(susp_label, sizeof(susp_label), "vm_%d_susp_irq", vmid);
+	ret = request_irq(virq_num, gh_susp_irq_handler, 0, susp_label, NULL);
+	if (ret < 0) {
+		pr_err("%s: IRQ registration failed ret=%d\n", __func__, ret);
+		return ret;
+	}
+
+	vm = find_vm_by_id(vmid);
+	if (vm) {
+		vm->cap_id = cap_id;
+		vm->susp_irq = virq_num;
+	}
+
+	return ret;
+}
+
 
 static int __init gh_init(void)
 {
@@ -1082,6 +1187,10 @@ static int __init gh_init(void)
 	ret = gh_proxy_sched_init();
 	if (ret)
 		pr_err("gunyah: proxy scheduler init failed %d\n", ret);
+
+	ret = gh_rm_set_vpm_grp_cb(&vm_vpm_grp_info);
+	if (ret)
+		pr_err("gunyah: rm set vpm callback failed %d\n", ret);
 
 	ret = misc_register(&gh_dev);
 	if (ret) {

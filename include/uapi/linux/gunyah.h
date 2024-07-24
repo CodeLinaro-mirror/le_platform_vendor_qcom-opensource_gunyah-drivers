@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: GPL-2.0-only WITH Linux-syscall-note */
 /*
- * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #ifndef _UAPI_LINUX_GUNYAH
@@ -66,6 +66,15 @@ struct gh_fw_name_and_exit_status {
 #define GH_VM_EXIT_REASON_ASYNC_EXT_ABORT	6
 #define GH_VM_EXIT_REASON_FORCE_STOPPED		7
 #define GH_VM_EXIT_REASONS_MAX			8
+
+/*
+ * vm_state specifies the current state of the VCPU/SYSTEM.
+ * VM_STATE_CPU_SUSPENDED corresponds to S2idle (PSCI_CPU_SUSPEND)
+ * while VM_STATE_SYSTEM_SUSPENDED correlates to S2R (PSCI_SYSTEM_SUSPEND).
+ */
+#define VM_STATE_RUNNING			1
+#define VM_STATE_CPU_SUSPENDED			2
+#define VM_STATE_SYSTEM_SUSPENDED		3
 
 /*
  * ioctls for /dev/gunyah fds:

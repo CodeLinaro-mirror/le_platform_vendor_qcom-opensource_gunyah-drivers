@@ -30,6 +30,13 @@ Requires: %{kpackage}-core-uname-r = %{kversion_with_debug}
 %description
 This is a rpm contains gunyah out of tree kernel modules.
 
+%package headers
+Summary: %{summary} - This rpm contains gunyah headers files.
+Requires: %{name} = %{version}-%{release}
+
+%description headers
+%{summary}: %{summary}
+
 %prep
 %setup -qn %{name}
 
@@ -44,6 +51,18 @@ depmod -a
 depmod -a
 
 %install
+# installing gunyah header files.
+mkdir -p %{buildroot}/usr/include/linux/gunyah
+install -m 755 include/linux/gunyah/gh_common.h %{buildroot}/usr/include/linux/gunyah
+install -m 755 include/linux/gunyah/gh_dbl.h %{buildroot}/usr/include/linux/gunyah
+install -m 755 include/linux/gunyah/gh_errno.h %{buildroot}/usr/include/linux/gunyah
+install -m 755 include/linux/gunyah/gh_irq_lend.h %{buildroot}/usr/include/linux/gunyah
+install -m 755 include/linux/gunyah/gh_mem_notifier.h %{buildroot}/usr/include/linux/gunyah
+install -m 755 include/linux/gunyah/gh_msgq.h %{buildroot}/usr/include/linux/gunyah
+install -m 755 include/linux/gunyah/gh_rm_drv.h %{buildroot}/usr/include/linux/gunyah
+install -m 755 include/linux/gunyah/gh_vm.h %{buildroot}/usr/include/linux/gunyah
+install -m 755 include/linux/gunyah/hcall_common.h %{buildroot}/usr/include/linux/gunyah
+
 mkdir -p %{buildroot}/usr/include/uapi/linux/
 install -m 755 include/uapi/linux/gunyah.h %{buildroot}/usr/include/uapi/linux/
 install_mod_path=%{buildroot}/usr/lib/modules/%{kversion_with_debug}
@@ -75,6 +94,19 @@ rm -rf $RPM_BUILD_ROOT
 %{_includedir}/uapi/linux/gunyah.h
 %{_sysconfdir}/modules-load.d/%{kmod_name}.conf
 
+%files headers
+%{_includedir}/linux/gunyah/gh_common.h
+%{_includedir}/linux/gunyah/gh_dbl.h
+%{_includedir}/linux/gunyah/gh_errno.h
+%{_includedir}/linux/gunyah/gh_irq_lend.h
+%{_includedir}/linux/gunyah/gh_mem_notifier.h
+%{_includedir}/linux/gunyah/gh_msgq.h
+%{_includedir}/linux/gunyah/gh_rm_drv.h
+%{_includedir}/linux/gunyah/gh_vm.h
+%{_includedir}/linux/gunyah/hcall_common.h
+
 %changelog
+* Fri May 10 2024 Ninad Naik <quic_ninanaik@quicinc.com> 1.0
+- Added gunyah header files to include directory
 * Fri Sep 01 2023 Yimin Peng <quic_yiminp@quicinc.com> 1.0
 - First commit!

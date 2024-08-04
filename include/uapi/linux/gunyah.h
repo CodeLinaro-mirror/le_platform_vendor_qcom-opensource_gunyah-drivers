@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: GPL-2.0-only WITH Linux-syscall-note */
 /*
- * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #ifndef _UAPI_LINUX_GUNYAH
@@ -129,6 +129,29 @@ struct gh_fw_name_and_exit_status {
  *         -errno on failure
  */
 #define GH_VM_GET_VCPU_COUNT		_IO(GH_IOCTL_TYPE, 0x43)
+/**
+ * GH_VM_GET_MEM_COUNT - Userspace can use this IOCTL to query the number
+ * 			 of memory regions that are provided for the VM.
+ * 			 Userspace can further use this count to fetch the
+ * 			 required information from each memory region to build
+ * 			 a memory FD.
+ *
+ * Return: memory region count on success, -errno on failure
+ */
+#define GH_VM_GET_MEM_COUNT		_IO(GH_IOCTL_TYPE, 0x44)
+/**
+ * GH_VM_GET_MEM_REGION - Userspace can use this IOCTL to query information
+ * 			  for a VM's memory region. Userspace can further use
+ * 			  this information to build a memory FD for this memory
+ * 			  region.
+ *
+ * Input: vm_mem_region structure to be filled with the VM memory
+ * 	  regions' index.
+ * Return: 0 if success and the memory regions' start address, size, and FD
+ * 	  representing the region, -errno on failure
+ */
+#define GH_VM_GET_MEM_REGION		_IOWR(GH_IOCTL_TYPE, 0x45, \
+						struct vm_mem_region)
 /*
  *  IOCTLs supported by virtio backend driver
  */
@@ -299,6 +322,13 @@ struct gh_fw_name_and_exit_status {
  * Return: Reason for vm termination, -errno on failure
  */
 #define GH_VCPU_RUN			_IO(GH_IOCTL_TYPE, 0x80)
+
+struct vm_mem_region {
+	__u8 idx;
+	__u64 fw_phys;
+	__u64 fw_size;
+	__s32 fd;
+};
 
 struct virtio_ack_reset {
 	__u32 label;

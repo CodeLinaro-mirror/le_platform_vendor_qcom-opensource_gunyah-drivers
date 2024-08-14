@@ -555,7 +555,7 @@ static void set_vmperm_bit(struct qcom_scm_vmperm *vmperm, u64 *bit_vmid,
 
 int gh_reclaim_shmem(struct gh_vm *vm, struct gh_shmem *shmems)
 {
-	gh_vmid_t vmid = vm->vmid;
+	gh_vmid_t vmid = shmems->is_phantom ? (shmems->gunyah_label & 0xff) : vm->vmid;
 	int i;
 	int ret = 0;
 	int dst_vmids_count = 1;
@@ -687,7 +687,7 @@ err_assign_mem:
 
 int gh_provide_shmem(struct gh_vm *vm, struct gh_shmem *shmems)
 {
-	gh_vmid_t vmid = vm->vmid;
+	gh_vmid_t vmid = shmems->is_phantom ? (shmems->gunyah_label & 0xff) : vm->vmid;
 	struct gh_acl_desc *acl_desc;
 	struct gh_sgl_desc *sgl_desc;
 	int i;

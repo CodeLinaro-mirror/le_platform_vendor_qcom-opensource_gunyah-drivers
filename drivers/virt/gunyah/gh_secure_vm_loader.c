@@ -5,6 +5,7 @@
 
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
 
+#include <linux/version.h>
 #include <linux/anon_inodes.h>
 #include <linux/soc/qcom/mdt_loader.h>
 #include <linux/gunyah/gh_rm_drv_oot.h>
@@ -410,7 +411,11 @@ static int gh_vm_mem_mmap(struct file *file, struct vm_area_struct *vma)
 	if (mmap_size != mem_region->fw_size)
 		return -EINVAL;
 
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(6, 3, 0))
+	vm_flags_set(vma, vma->vm_flags | VM_DONTEXPAND | VM_DONTDUMP);
+#else
 	vma->vm_flags = vma->vm_flags | VM_DONTEXPAND | VM_DONTDUMP;
+#endif
 
 	if (io_remap_pfn_range(vma, vma->vm_start,
 			__phys_to_pfn(mem_region->fw_phys),

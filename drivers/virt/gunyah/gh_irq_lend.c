@@ -10,7 +10,7 @@
 #include <linux/spinlock.h>
 #include <dt-bindings/interrupt-controller/arm-gic.h>
 #include <linux/gunyah/gh_irq_lend.h>
-#include <linux/gunyah/gh_rm_drv.h>
+#include <linux/gunyah/gh_rm_drv_oot.h>
 
 #include "gh_rm_drv_private.h"
 

@@ -10,8 +10,8 @@
 #include <linux/types.h>
 
 #include <linux/gunyah/gh_msgq.h>
-#include <linux/gunyah/gh_rm_drv.h>
-#include <linux/gunyah/gh_common.h>
+#include <linux/gunyah/gh_rm_drv_oot.h>
+#include <linux/gunyah/gh_common_oot.h>
 
 extern bool gh_rm_core_initialized;
 

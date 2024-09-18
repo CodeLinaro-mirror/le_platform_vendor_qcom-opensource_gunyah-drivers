@@ -9,7 +9,7 @@
 #include <linux/irqdomain.h>
 
 #include <dt-bindings/interrupt-controller/arm-gic.h>
-#include <linux/gunyah/gh_rm_drv.h>
+#include <linux/gunyah/gh_rm_drv_oot.h>
 
 #define GIC_V3_SPI_MAX		1019
 

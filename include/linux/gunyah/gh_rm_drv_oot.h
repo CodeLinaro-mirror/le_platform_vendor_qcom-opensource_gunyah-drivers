@@ -12,7 +12,7 @@
 #include <linux/notifier.h>
 #include <linux/fwnode.h>
 
-#include "gh_common.h"
+#include "gh_common_oot.h"
 
 /* Notification type Message IDs */
 /* Memory APIs */

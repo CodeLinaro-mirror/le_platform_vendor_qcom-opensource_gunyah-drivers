@@ -36,7 +36,7 @@
 #include <linux/sched/signal.h>
 
 #include <linux/gunyah/gh_errno.h>
-#include <linux/gunyah/gh_rm_drv.h>
+#include <linux/gunyah/gh_rm_drv_oot.h>
 #include "gh_proxy_sched.h"
 
 #define CREATE_TRACE_POINTS

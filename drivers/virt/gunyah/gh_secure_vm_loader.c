@@ -7,7 +7,7 @@
 
 #include <linux/anon_inodes.h>
 #include <linux/soc/qcom/mdt_loader.h>
-#include <linux/gunyah/gh_rm_drv.h>
+#include <linux/gunyah/gh_rm_drv_oot.h>
 #include <linux/platform_device.h>
 #include <linux/of_reserved_mem.h>
 #include <linux/dma-mapping.h>

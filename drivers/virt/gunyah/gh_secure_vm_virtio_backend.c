@@ -23,10 +23,10 @@
 #include <linux/eventfd.h>
 #include <linux/platform_device.h>
 #include <linux/uaccess.h>
-#include <linux/gunyah.h>
+#include <linux/gunyah_oot.h>
 #include <linux/of_irq.h>
 #include <uapi/linux/virtio_mmio.h>
-#include <linux/gunyah/gh_rm_drv.h>
+#include <linux/gunyah/gh_rm_drv_oot.h>
 #include <linux/pgtable.h>
 #include <linux/firmware/qcom/qcom_scm.h>
 #include "gh_secure_vm_virtio_backend.h"

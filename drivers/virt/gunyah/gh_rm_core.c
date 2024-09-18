@@ -23,8 +23,8 @@
 #include <linux/gunyah/gh_dbl.h>
 #include <linux/gunyah/gh_msgq.h>
 #include <linux/gunyah/gh_errno.h>
-#include <linux/gunyah/gh_common.h>
-#include <linux/gunyah/gh_rm_drv.h>
+#include <linux/gunyah/gh_common_oot.h>
+#include <linux/gunyah/gh_rm_drv_oot.h>
 
 #include "gh_rm_drv_private.h"
 

@@ -7,7 +7,7 @@
 #ifndef __GH_DBL_H
 #define __GH_DBL_H
 
-#include "gh_common.h"
+#include "gh_common_oot.h"
 
 typedef void (*dbl_rx_cb_t)(int irq, void *priv_data);
 

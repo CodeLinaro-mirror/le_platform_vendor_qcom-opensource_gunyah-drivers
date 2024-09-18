@@ -11,7 +11,7 @@
 #include <linux/vmalloc.h>
 
 #include <linux/gunyah/gh_msgq.h>
-#include <linux/gunyah/gh_common.h>
+#include <linux/gunyah/gh_common_oot.h>
 #include <linux/mm.h>
 
 #define CREATE_TRACE_POINTS

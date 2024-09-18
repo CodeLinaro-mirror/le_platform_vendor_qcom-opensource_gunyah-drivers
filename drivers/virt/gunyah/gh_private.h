@@ -6,10 +6,10 @@
 #ifndef _GH_PRIVATE_H
 #define _GH_PRIVATE_H
 
-#include <linux/gunyah/gh_rm_drv.h>
+#include <linux/gunyah/gh_rm_drv_oot.h>
 #include <linux/gunyah/gh_vm.h>
 #include <linux/refcount.h>
-#include <linux/gunyah.h>
+#include <linux/gunyah_oot.h>
 #include <linux/wait.h>
 
 #define GH_EVENT_CREATE_VM 0

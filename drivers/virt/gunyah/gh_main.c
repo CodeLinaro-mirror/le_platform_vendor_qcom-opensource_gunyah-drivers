@@ -14,7 +14,7 @@
 #include <linux/file.h>
 #include <linux/fs.h>
 #include <linux/firmware/qcom/qcom_scm.h>
-#include <linux/gunyah.h>
+#include <linux/gunyah_oot.h>
 #include <linux/errno.h>
 #include <linux/types.h>
 #include <linux/limits.h>

@@ -11,7 +11,7 @@
 #include <linux/types.h>
 #include <linux/platform_device.h>
 
-#include "gh_common.h"
+#include "gh_common_oot.h"
 
 enum gh_msgq_label {
 	GH_MSGQ_LABEL_RM,

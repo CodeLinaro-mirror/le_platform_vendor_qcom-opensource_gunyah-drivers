@@ -6,14 +6,15 @@
 #ifndef _GH_PRIVATE_H
 #define _GH_PRIVATE_H
 
-#include <linux/gunyah/gh_rm_drv.h>
+#include <linux/gunyah/gh_rm_drv_oot.h>
 #include <linux/gunyah/gh_vm.h>
 #include <linux/refcount.h>
-#include <linux/gunyah.h>
+#include <linux/gunyah_oot.h>
 #include <linux/wait.h>
 
 #define GH_EVENT_CREATE_VM 0
 #define GH_EVENT_DESTROY_VM 1
+#define GH_EVENT_VM_SUSPENDED 2
 #define GH_MAX_VCPUS 8
 #define GH_MAX_VMIDS 16
 
@@ -44,6 +45,10 @@ struct gh_vm {
 	gh_memparcel_handle_t mem_handle;
 	struct mutex vm_lock;
 	struct list_head list;
+	gh_capid_t cap_id;
+	int susp_irq;
+	uint64_t vm_suspend_type;
+	spinlock_t susp_vm_lock;
 };
 
 struct gh_shmem {

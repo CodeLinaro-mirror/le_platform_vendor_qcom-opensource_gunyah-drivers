@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2020-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  */
 
@@ -23,8 +23,8 @@
 #include <linux/gunyah/gh_dbl.h>
 #include <linux/gunyah/gh_msgq.h>
 #include <linux/gunyah/gh_errno.h>
-#include <linux/gunyah/gh_common.h>
-#include <linux/gunyah/gh_rm_drv.h>
+#include <linux/gunyah/gh_common_oot.h>
+#include <linux/gunyah/gh_rm_drv_oot.h>
 
 #include "gh_rm_drv_private.h"
 
@@ -78,6 +78,7 @@ const static struct {
 	{GH_CPUSYS_VM, "cpusys_vm", "qcom,cpusysvm"},
 	{GH_OEM_VM, "oem_vm", "qcom,oemvm"},
 	{GH_AUTO_VM, "autoghgvm", "qcom,autoghgvm"},
+	{GH_AUTO_VM_LV, "autoghgvmlv", "qcom,autoghgvmlv"},
 };
 
 static struct task_struct *gh_rm_drv_recv_task;

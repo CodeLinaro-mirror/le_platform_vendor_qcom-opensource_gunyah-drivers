@@ -9,8 +9,8 @@
 
 #include <linux/types.h>
 
-#include "gh_common.h"
-#include "gh_rm_drv.h"
+#include "gh_common_oot.h"
+#include "gh_rm_drv_oot.h"
 
 enum gh_irq_label {
 	GH_IRQ_LABEL_SDE,

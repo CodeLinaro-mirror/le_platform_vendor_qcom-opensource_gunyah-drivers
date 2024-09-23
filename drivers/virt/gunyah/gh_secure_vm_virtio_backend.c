@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
- * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
+#include <linux/version.h>
 #include <linux/interrupt.h>
 #include <linux/module.h>
 #include <linux/kernel.h>
@@ -23,10 +24,10 @@
 #include <linux/eventfd.h>
 #include <linux/platform_device.h>
 #include <linux/uaccess.h>
-#include <linux/gunyah.h>
+#include <linux/gunyah_oot.h>
 #include <linux/of_irq.h>
 #include <uapi/linux/virtio_mmio.h>
-#include <linux/gunyah/gh_rm_drv.h>
+#include <linux/gunyah/gh_rm_drv_oot.h>
 #include <linux/pgtable.h>
 #include <linux/firmware/qcom/qcom_scm.h>
 #include "gh_secure_vm_virtio_backend.h"
@@ -236,7 +237,7 @@ static int vb_dev_irqfd(struct virtio_backend_device *vb_dev,
 
 	spin_lock_irqsave(&vb_dev->lock, flags);
 
-	if (vb_dev->irq.fd.file)
+	if (vb_dev->irq.fd.file || vb_dev->irq.ctx)
 		goto fail;
 
 	f = fdget(ifd->fd);
@@ -812,8 +813,11 @@ int gh_virtio_backend_mmap(const char *vm_name,
 	mmap_size = vma->vm_end - vma->vm_start;
 	if (mmap_size != vm->shmem_size)
 		return -EINVAL;
-
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(6, 3, 0))
+	vm_flags_set(vma, vma->vm_flags | VM_DONTEXPAND | VM_DONTDUMP);
+#else
 	vma->vm_flags = vma->vm_flags | VM_DONTEXPAND | VM_DONTDUMP;
+#endif
 
 	if (io_remap_pfn_range(vma, vma->vm_start,
 			__phys_to_pfn(vm->shmem_addr),
@@ -1373,6 +1377,7 @@ int gh_virtio_mmio_exit(gh_vmid_t vmid, const char *vm_name)
 	struct virt_machine *vm;
 	struct virtio_backend_device *vb_dev;
 	int ret = -EINVAL, i;
+	u64 cnt;
 
 	vm = find_vm_by_name(vm_name);
 	if (!vm) {
@@ -1383,10 +1388,15 @@ int gh_virtio_mmio_exit(gh_vmid_t vmid, const char *vm_name)
 	spin_lock(&vm->vb_dev_lock);
 	list_for_each_entry(vb_dev, &vm->vb_dev_list, list) {
 		spin_unlock(&vm->vb_dev_lock);
-		if (vb_dev->irq.fd.file) {
-			fdput(vb_dev->irq.fd);
-			vb_dev->irq.fd.file = NULL;
-                }
+		if (vb_dev->irq.ctx) {
+			eventfd_ctx_remove_wait_queue(vb_dev->irq.ctx, &(vb_dev->irq.wait), &cnt);
+			eventfd_ctx_put(vb_dev->irq.ctx);
+			if (vb_dev->irq.fd.file) {
+				fdput(vb_dev->irq.fd);
+				vb_dev->irq.fd.file = NULL;
+			}
+			vb_dev->irq.ctx = NULL;
+		}
 		for (i = 0; i < MAX_IO_CONTEXTS; ++i) {
 			if (vb_dev->ioctx[i].ctx) {
 				eventfd_ctx_put(vb_dev->ioctx[i].ctx);

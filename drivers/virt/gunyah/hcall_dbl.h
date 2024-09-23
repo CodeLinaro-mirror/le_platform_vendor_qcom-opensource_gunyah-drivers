@@ -9,7 +9,7 @@
 #include <linux/types.h>
 
 #include <linux/gunyah/hcall_common.h>
-#include <linux/gunyah/gh_common.h>
+#include <linux/gunyah/gh_common_oot.h>
 #include <asm/gunyah/hcall.h>
 
 static inline int gh_hcall_dbl_bind(gh_capid_t dbl_capid, gh_capid_t vic_capid,

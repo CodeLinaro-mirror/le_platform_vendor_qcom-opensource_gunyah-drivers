@@ -36,7 +36,7 @@ static struct dentry *gvm_ramdump_enable_dentry;
  * vmid - needed during cleanup of GVM ramdump when corresponding
  * GVM restart after ramdump collection.
  * ramdump_start_addr, ramdump_size and mapped_addr for ramdump collection
- * in ioremapped address.
+ * in memremapped address.
  * gvm_ramdump_dir - points to curesponding GVM debugFS ramdump dir and
  * required during cleanup as well.
  * lock is mutex lock to be acquired as ramdump context is shared in
@@ -48,7 +48,7 @@ struct gvm_ramdump_ctx {
 	int num_mem_regions;
 	phys_addr_t *ramdump_start_addr;
 	size_t *ramdump_size;
-	void **__iomem mapped_addr;
+	void **mapped_addr;
 	struct dentry *gvm_ramdump_dir;
 	struct mutex lock;
 	struct list_head list;
@@ -64,12 +64,13 @@ static void sanitize_gvm_region(struct gvm_ramdump_ctx *gvm_ctx)
 	int idx = 0;
 	mutex_lock(&gvm_ctx->lock);
 	for (idx = 0; idx < gvm_ctx->num_mem_regions; idx++) {
-		gvm_ctx->mapped_addr[idx] = ioremap(gvm_ctx->ramdump_start_addr[idx], gvm_ctx->ramdump_size[idx]);
+		gvm_ctx->mapped_addr[idx] = memremap(gvm_ctx->ramdump_start_addr[idx],
+						     gvm_ctx->ramdump_size[idx], MEMREMAP_WB);
 		if (gvm_ctx->mapped_addr[idx]) {
-			memset_io(gvm_ctx->mapped_addr[idx], 0, gvm_ctx->ramdump_size[idx]);
-			iounmap(gvm_ctx->mapped_addr[idx]);
+			memset(gvm_ctx->mapped_addr[idx], 0, gvm_ctx->ramdump_size[idx]);
+			memunmap(gvm_ctx->mapped_addr[idx]);
 		} else
-			pr_err("%s: ioremap failed\n", GVM_RAMDUMP_PRINT_MARKER);
+			pr_err("%s: memremap failed\n", GVM_RAMDUMP_PRINT_MARKER);
 	}
 
 	mutex_unlock(&gvm_ctx->lock);
@@ -157,7 +158,7 @@ static int gvm_debugfs_release(struct inode *inode, struct file *file)
 		return -1;
 
 	if (gvm_prv_ctx->mapped_addr[ramdump_id])
-		iounmap(gvm_prv_ctx->mapped_addr[ramdump_id]);
+		memunmap(gvm_prv_ctx->mapped_addr[ramdump_id]);
 
 	mutex_unlock(&gvm_prv_ctx->lock);
 
@@ -200,10 +201,10 @@ static int gvm_debugfs_open(struct inode *inode, struct file *file)
 
 	mutex_lock(&gvm_prv_ctx->lock);
 
-	gvm_prv_ctx->mapped_addr[ramdump_id] = ioremap(gvm_prv_ctx->ramdump_start_addr[ramdump_id],
-						   gvm_prv_ctx->ramdump_size[ramdump_id]);
+	gvm_prv_ctx->mapped_addr[ramdump_id] = memremap(gvm_prv_ctx->ramdump_start_addr[ramdump_id],
+							gvm_prv_ctx->ramdump_size[ramdump_id], MEMREMAP_WB);
 	if (!gvm_prv_ctx->mapped_addr[ramdump_id]) {
-		pr_err("%s: ioremap failed\n", GVM_RAMDUMP_PRINT_MARKER);
+		pr_err("%s: memremap failed\n", GVM_RAMDUMP_PRINT_MARKER);
 		mutex_unlock(&gvm_prv_ctx->lock);
 		goto free_vm_debugfs;
 	}

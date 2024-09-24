@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
- * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include <linux/interrupt.h>
@@ -236,7 +236,7 @@ static int vb_dev_irqfd(struct virtio_backend_device *vb_dev,
 
 	spin_lock_irqsave(&vb_dev->lock, flags);
 
-	if (vb_dev->irq.fd.file)
+	if (vb_dev->irq.fd.file || vb_dev->irq.ctx)
 		goto fail;
 
 	f = fdget(ifd->fd);
@@ -1373,6 +1373,7 @@ int gh_virtio_mmio_exit(gh_vmid_t vmid, const char *vm_name)
 	struct virt_machine *vm;
 	struct virtio_backend_device *vb_dev;
 	int ret = -EINVAL, i;
+	u64 cnt;
 
 	vm = find_vm_by_name(vm_name);
 	if (!vm) {
@@ -1383,10 +1384,15 @@ int gh_virtio_mmio_exit(gh_vmid_t vmid, const char *vm_name)
 	spin_lock(&vm->vb_dev_lock);
 	list_for_each_entry(vb_dev, &vm->vb_dev_list, list) {
 		spin_unlock(&vm->vb_dev_lock);
-		if (vb_dev->irq.fd.file) {
-			fdput(vb_dev->irq.fd);
-			vb_dev->irq.fd.file = NULL;
-                }
+		if (vb_dev->irq.ctx) {
+			eventfd_ctx_remove_wait_queue(vb_dev->irq.ctx, &(vb_dev->irq.wait), &cnt);
+			eventfd_ctx_put(vb_dev->irq.ctx);
+			if (vb_dev->irq.fd.file) {
+				fdput(vb_dev->irq.fd);
+				vb_dev->irq.fd.file = NULL;
+			}
+			vb_dev->irq.ctx = NULL;
+		}
 		for (i = 0; i < MAX_IO_CONTEXTS; ++i) {
 			if (vb_dev->ioctx[i].ctx) {
 				eventfd_ctx_put(vb_dev->ioctx[i].ctx);

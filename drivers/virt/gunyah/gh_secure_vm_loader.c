@@ -762,6 +762,11 @@ static int gh_vm_shared_mem_probe(struct gh_sec_vm_dev *sec_vm_dev)
 			return ret;
 		}
 
+		if (of_property_read_bool(node, "qcom,is-phantom"))
+			sec_vm_dev->sh_mem_regions[i].is_phantom = true;
+		else
+			sec_vm_dev->sh_mem_regions[i].is_phantom = false;
+
 		if (of_property_read_bool(node, "qcom,is-shared"))
 			sec_vm_dev->sh_mem_regions[i].is_shared = true;
 		else

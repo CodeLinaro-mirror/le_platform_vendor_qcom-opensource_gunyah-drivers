@@ -62,6 +62,7 @@ struct gh_shmem {
 	gh_vm_perm_t dst_perms[GH_MAX_VMIDS];
 	gh_label_t gunyah_label;
 	bool is_shared;
+	bool is_phantom;
 	gh_memparcel_handle_t shmem_handle;
 };
 

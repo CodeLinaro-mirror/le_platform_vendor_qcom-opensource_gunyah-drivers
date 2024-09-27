@@ -15,7 +15,9 @@ EXTRA_CFLAGS += -DCONFIG_GH_DBL=1 \
 obj-$(CONFIG_GH_VIRT_WATCHDOG) += gh_virt_wdt.o
 obj-m += gh_dbl.o
 obj-m += gh_msgq.o
-
+obj-m += gunyah_trace.o
+obj-m += gh_ctrl.o
+obj-m += gunyah_info.o
 obj-m += gh_rm_drv.o
 gh_rm_drv-y += gh_rm_core.o gh_rm_iface.o
 

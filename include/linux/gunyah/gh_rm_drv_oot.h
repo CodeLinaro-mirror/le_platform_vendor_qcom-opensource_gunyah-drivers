@@ -310,6 +310,14 @@ struct gh_vm_status {
 	u16 app_status;
 } __packed;
 
+/* code cov */
+#define GH_RM_RPC_MSG_ID_CALL_VM_GET_CODE_COV	0X56000060
+
+struct gh_code_cov_resp_payload {
+	u32 sz;
+	char buff[];
+} __packed;
+
 struct notifier_block;
 
 typedef int (*gh_virtio_mmio_cb_t)(gh_vmid_t peer, const char *vm_name,
@@ -424,6 +432,8 @@ int gh_rm_minidump_register_range(phys_addr_t base_ipa, size_t region_size,
 				  const char *name, size_t name_size);
 int gh_rm_minidump_deregister_slot(uint16_t slot_num);
 
+struct gh_code_cov_resp_payload *gh_rm_vm_get_code_cov(gh_vmid_t vmid,
+						u16 log_type);
 #else
 /* RM client register notifications APIs */
 static inline int gh_rm_register_notifier(struct notifier_block *nb)
@@ -731,5 +741,11 @@ static inline int gh_rm_minidump_deregister_slot(uint16_t slot_num)
 	return -EINVAL;
 }
 
+static inline struct gh_code_cov_resp_payload *gh_rm_vm_get_code_cov(
+						gh_vmid_t vmid,
+						u16 log_type)
+{
+	return ERR_PTR(-EINVAL);
+}
 #endif
 #endif

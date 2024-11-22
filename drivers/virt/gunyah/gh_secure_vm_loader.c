@@ -399,6 +399,13 @@ long gh_vm_ioctl_get_mem_count(struct gh_vm *vm)
 	return mem_count;
 }
 
+static int gh_remove_pte_special(pte_t *ptep, unsigned long addr,
+					void *unused)
+{
+	set_pte(ptep, clear_pte_bit(*ptep, __pgprot(PTE_SPECIAL)));
+	return 0;
+}
+
 static int gh_vm_mem_mmap(struct file *file, struct vm_area_struct *vma)
 {
 	struct gh_sec_vm_fw_mem *mem_region = file->private_data;
@@ -423,6 +430,11 @@ static int gh_vm_mem_mmap(struct file *file, struct vm_area_struct *vma)
 		pr_err("%s: ioremap_pfn_range failed\n", __func__);
 		return -EAGAIN;
 	}
+
+	apply_to_existing_page_range(vma->vm_mm,
+					(unsigned long)vma->vm_start,
+					mmap_size, gh_remove_pte_special,
+					NULL);
 
 	return 0;
 }

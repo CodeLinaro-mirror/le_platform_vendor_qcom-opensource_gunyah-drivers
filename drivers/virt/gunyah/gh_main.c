@@ -50,22 +50,6 @@ gh_rm_call_and_set_status(vm_start);
 #define gh_wait_for_vm_status(vm, wait_status) 				\
 	wait_event(vm->vm_status_wait, (vm->status.vm_status == wait_status))
 
-static struct gh_vm *find_vm_by_name(const char *vm_name)
-{
-	struct gh_vm *vm = NULL, *tmp;
-
-	spin_lock(&vm_list_lock);
-	list_for_each_entry(tmp, &vm_list, list) {
-		if (!strcmp(tmp->fw_name, vm_name)) {
-			vm = tmp;
-			break;
-		}
-	}
-	spin_unlock(&vm_list_lock);
-
-	return vm;
-}
-
 static struct gh_vm* find_vm_by_id(gh_vmid_t vmid)
 {
 	struct gh_vm *vm = NULL, *tmp;
@@ -288,9 +272,10 @@ void gh_destroy_vcpu(struct gh_vcpu *vcpu)
 	vm->created_vcpus--;
 }
 
-void gh_destroy_vm(struct gh_vm *vm)
+static void gh_destroy_vm(struct kref *kref)
 {
 	int vcpu_id = 0;
+	struct gh_vm *vm = container_of(kref, struct gh_vm, kref);
 
 	if (vm->status.vm_status == GH_RM_VM_STATUS_NO_STATE)
 		goto clean_vm;
@@ -320,15 +305,30 @@ clean_vm:
 	kfree(vm);
 }
 
-static void gh_get_vm(struct gh_vm *vm)
+static int __must_check gh_get_vm(struct gh_vm *vm)
 {
-	refcount_inc(&vm->users_count);
+	return kref_get_unless_zero(&vm->kref);
 }
 
 static void gh_put_vm(struct gh_vm *vm)
 {
-	if (refcount_dec_and_test(&vm->users_count))
-		gh_destroy_vm(vm);
+	kref_put(&vm->kref, gh_destroy_vm);
+}
+
+static struct gh_vm *find_and_get_vm_by_name(const char *vm_name)
+{
+	struct gh_vm *vm = NULL, *tmp;
+
+	spin_lock(&vm_list_lock);
+	list_for_each_entry(tmp, &vm_list, list) {
+		if (!strcmp(tmp->fw_name, vm_name) && gh_get_vm(tmp)) {
+			vm = tmp;
+			break;
+		}
+	}
+	spin_unlock(&vm_list_lock);
+
+	return vm;
 }
 
 static int gh_vcpu_release(struct inode *inode, struct file *filp)
@@ -494,8 +494,10 @@ static long gh_vm_ioctl_create_vcpu(struct gh_vm *vm, u32 id)
 		goto err_put_fd;
 	}
 
+	if (unlikely(!gh_get_vm(vm)))
+		goto err_put_fd;
+
 	fd_install(fd, file);
-	gh_get_vm(vm);
 
 	vm->vcpus[id] = vcpu;
 	vm->created_vcpus++;
@@ -985,7 +987,7 @@ static struct gh_vm *gh_create_vm(void)
 		kfree(vm);
 		return ERR_PTR(ret);
 	}
-	refcount_set(&vm->users_count, 1);
+	kref_init(&vm->kref);
 	init_waitqueue_head(&vm->vm_status_wait);
 	init_waitqueue_head(&vm->vm_exit_ioc_wait);
 	vm->status.vm_status = GH_RM_VM_STATUS_NO_STATE;
@@ -1044,20 +1046,24 @@ static long gh_dev_ioctl_wait_for_exit(unsigned long arg)
 				sizeof(vm_name_and_status)))
 		return -EFAULT;
 
-	vm = find_vm_by_name(vm_name_and_status.name);
+	vm = find_and_get_vm_by_name(vm_name_and_status.name);
 	if (!vm)
 		return -EINVAL;
 
 	ret = gh_ioc_wait_for_vm_status(vm, GH_RM_VM_STATUS_EXITED);
 	if (ret)
-		return ret;
+		goto err_put_vm;
 
 	vm_name_and_status.reason = (u32)vm->exit_type;
 	if (copy_to_user((void __user *)arg, &vm_name_and_status,
-				sizeof(vm_name_and_status)))
-		return -EFAULT;
+				sizeof(vm_name_and_status))) {
+		ret = -EFAULT;
+		goto err_put_vm;
+	}
 
-	return 0;
+err_put_vm:
+	gh_put_vm(vm);
+	return ret;
 }
 
 static long gh_dev_ioctl(struct file *filp,

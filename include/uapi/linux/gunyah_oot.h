@@ -23,6 +23,7 @@
  * fw_name is used to find the secure VM image by name to be loaded.
  */
 #define GH_VM_FW_NAME_MAX		16
+#define SUSP_IRQ_NAME_MAX		16
 
 /** @struct gh_fw_name
  * A structure to be passed to GH_VM_SET_FM_NAME ioctl

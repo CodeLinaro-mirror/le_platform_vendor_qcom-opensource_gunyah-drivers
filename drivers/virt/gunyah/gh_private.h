@@ -47,6 +47,7 @@ struct gh_vm {
 	struct list_head list;
 	gh_capid_t cap_id;
 	int susp_irq;
+	char susp_irq_name[SUSP_IRQ_NAME_MAX];
 	uint64_t vm_suspend_type;
 	spinlock_t susp_vm_lock;
 };

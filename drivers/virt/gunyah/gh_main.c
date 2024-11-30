@@ -26,7 +26,6 @@
 #include "gvm_dump_debugfs.h"
 
 #define MAX_VCPU_NAME		20 /* gh-vcpu:u32_max +1 */
-#define MAX_VM_SUSP_LABEL	18 /* vm_u16_max_susp_irq + 1 */
 
 SRCU_NOTIFIER_HEAD_STATIC(gh_vm_notifier);
 static DEFINE_SPINLOCK(vm_list_lock);
@@ -1167,25 +1166,28 @@ static int set_vm_vpm_grp_info(gh_vmid_t vmid, gh_capid_t cap_id, int virq_num)
 {
 	int ret = 0;
 	struct gh_vm *vm;
-	char susp_label[MAX_VM_SUSP_LABEL];
 
 	if (virq_num < 0) {
 		pr_err("%s: Invalid IRQ number\n", __func__);
 		return -EINVAL;
 	}
 
-	snprintf(susp_label, sizeof(susp_label), "vm_%d_susp_irq", vmid);
-	ret = request_irq(virq_num, gh_susp_irq_handler, 0, susp_label, NULL);
-	if (ret < 0) {
-		pr_err("%s: IRQ registration failed ret=%d\n", __func__, ret);
-		return ret;
-	}
-
 	vm = find_vm_by_id(vmid);
 	if (vm) {
 		vm->cap_id = cap_id;
 		vm->susp_irq = virq_num;
+		snprintf(vm->susp_irq_name, sizeof(vm->susp_irq_name), "vm%d_susp_irq", vmid);
+	} else {
+		pr_err("%s: cannot find vm %d\n", __func__, vmid);
+		return ret;
 	}
+
+	ret = request_irq(virq_num, gh_susp_irq_handler, 0, vm->susp_irq_name, NULL);
+	if (ret < 0) {
+		pr_err("%s: IRQ registration failed ret=%d\n", __func__, ret);
+		return ret;
+	}
+	pr_info("%s: IRQ registration %s ret=%d\n", __func__, vm->susp_irq_name, ret);
 
 	return ret;
 }

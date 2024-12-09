@@ -6,7 +6,7 @@
 #ifndef _GH_SECURE_VM_VIRTIO_BACKEND_H
 #define _GH_SECURE_VM_VIRTIO_BACKEND_H
 
-#include <linux/gunyah/gh_common.h>
+#include <linux/gunyah/gh_common_oot.h>
 
 int gh_virtio_backend_mmap(const char *vm_name, struct vm_area_struct *vma);
 long gh_virtio_backend_ioctl(const char *vm_name, unsigned int cmd,

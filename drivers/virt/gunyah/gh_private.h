@@ -6,10 +6,10 @@
 #ifndef _GH_PRIVATE_H
 #define _GH_PRIVATE_H
 
-#include <linux/gunyah/gh_rm_drv.h>
+#include <linux/gunyah/gh_rm_drv_oot.h>
 #include <linux/gunyah/gh_vm.h>
 #include <linux/refcount.h>
-#include <linux/gunyah.h>
+#include <linux/gunyah_oot.h>
 #include <linux/wait.h>
 
 #define GH_EVENT_CREATE_VM 0
@@ -41,7 +41,7 @@ struct gh_vm {
 	wait_queue_head_t vm_status_wait;
 	wait_queue_head_t vm_exit_ioc_wait;
 	int exit_type;
-	refcount_t users_count;
+	struct kref kref;
 	gh_memparcel_handle_t mem_handle;
 	struct mutex vm_lock;
 	struct list_head list;
@@ -62,6 +62,7 @@ struct gh_shmem {
 	gh_vm_perm_t dst_perms[GH_MAX_VMIDS];
 	gh_label_t gunyah_label;
 	bool is_shared;
+	bool is_phantom;
 	gh_memparcel_handle_t shmem_handle;
 };
 

@@ -9,7 +9,7 @@
 #include <linux/types.h>
 
 #include <linux/gunyah/hcall_common.h>
-#include <linux/gunyah/gh_common.h>
+#include <linux/gunyah/gh_common_oot.h>
 #include <asm/gunyah/hcall.h>
 
 struct gh_hcall_hyp_identify_resp {

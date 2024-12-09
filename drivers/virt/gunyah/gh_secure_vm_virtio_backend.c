@@ -3,6 +3,7 @@
  * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
+#include <linux/version.h>
 #include <linux/interrupt.h>
 #include <linux/module.h>
 #include <linux/kernel.h>
@@ -23,10 +24,10 @@
 #include <linux/eventfd.h>
 #include <linux/platform_device.h>
 #include <linux/uaccess.h>
-#include <linux/gunyah.h>
+#include <linux/gunyah_oot.h>
 #include <linux/of_irq.h>
 #include <uapi/linux/virtio_mmio.h>
-#include <linux/gunyah/gh_rm_drv.h>
+#include <linux/gunyah/gh_rm_drv_oot.h>
 #include <linux/pgtable.h>
 #include <linux/firmware/qcom/qcom_scm.h>
 #include "gh_secure_vm_virtio_backend.h"
@@ -812,8 +813,11 @@ int gh_virtio_backend_mmap(const char *vm_name,
 	mmap_size = vma->vm_end - vma->vm_start;
 	if (mmap_size != vm->shmem_size)
 		return -EINVAL;
-
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(6, 3, 0))
+	vm_flags_set(vma, vma->vm_flags | VM_DONTEXPAND | VM_DONTDUMP);
+#else
 	vma->vm_flags = vma->vm_flags | VM_DONTEXPAND | VM_DONTDUMP;
+#endif
 
 	if (io_remap_pfn_range(vma, vma->vm_start,
 			__phys_to_pfn(vm->shmem_addr),

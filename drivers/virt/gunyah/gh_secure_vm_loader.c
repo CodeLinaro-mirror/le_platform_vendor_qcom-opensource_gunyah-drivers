@@ -5,9 +5,10 @@
 
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
 
+#include <linux/version.h>
 #include <linux/anon_inodes.h>
 #include <linux/soc/qcom/mdt_loader.h>
-#include <linux/gunyah/gh_rm_drv.h>
+#include <linux/gunyah/gh_rm_drv_oot.h>
 #include <linux/platform_device.h>
 #include <linux/of_reserved_mem.h>
 #include <linux/dma-mapping.h>
@@ -398,6 +399,13 @@ long gh_vm_ioctl_get_mem_count(struct gh_vm *vm)
 	return mem_count;
 }
 
+static int gh_remove_pte_special(pte_t *ptep, unsigned long addr,
+					void *unused)
+{
+	set_pte(ptep, clear_pte_bit(*ptep, __pgprot(PTE_SPECIAL)));
+	return 0;
+}
+
 static int gh_vm_mem_mmap(struct file *file, struct vm_area_struct *vma)
 {
 	struct gh_sec_vm_fw_mem *mem_region = file->private_data;
@@ -410,7 +418,11 @@ static int gh_vm_mem_mmap(struct file *file, struct vm_area_struct *vma)
 	if (mmap_size != mem_region->fw_size)
 		return -EINVAL;
 
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(6, 3, 0))
+	vm_flags_set(vma, vma->vm_flags | VM_DONTEXPAND | VM_DONTDUMP);
+#else
 	vma->vm_flags = vma->vm_flags | VM_DONTEXPAND | VM_DONTDUMP;
+#endif
 
 	if (io_remap_pfn_range(vma, vma->vm_start,
 			__phys_to_pfn(mem_region->fw_phys),
@@ -418,6 +430,11 @@ static int gh_vm_mem_mmap(struct file *file, struct vm_area_struct *vma)
 		pr_err("%s: ioremap_pfn_range failed\n", __func__);
 		return -EAGAIN;
 	}
+
+	apply_to_existing_page_range(vma->vm_mm,
+					(unsigned long)vma->vm_start,
+					mmap_size, gh_remove_pte_special,
+					NULL);
 
 	return 0;
 }
@@ -756,6 +773,11 @@ static int gh_vm_shared_mem_probe(struct gh_sec_vm_dev *sec_vm_dev)
 			dev_err(dev, "DT error getting \"gunyah-label\": %d\n", ret);
 			return ret;
 		}
+
+		if (of_property_read_bool(node, "qcom,is-phantom"))
+			sec_vm_dev->sh_mem_regions[i].is_phantom = true;
+		else
+			sec_vm_dev->sh_mem_regions[i].is_phantom = false;
 
 		if (of_property_read_bool(node, "qcom,is-shared"))
 			sec_vm_dev->sh_mem_regions[i].is_shared = true;

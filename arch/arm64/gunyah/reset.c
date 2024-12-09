@@ -4,7 +4,7 @@
  *
  */
 
-#include <linux/gunyah/gh_rm_drv.h>
+#include <linux/gunyah/gh_rm_drv_oot.h>
 #include "reset.h"
 
 /**

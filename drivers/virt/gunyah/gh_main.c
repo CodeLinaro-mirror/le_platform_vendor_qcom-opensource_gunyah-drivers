@@ -990,7 +990,7 @@ static struct gh_vm *gh_create_vm(void)
 	vm->status.vm_status = GH_RM_VM_STATUS_NO_STATE;
 	vm->exit_type = -EINVAL;
 	vm->susp_irq = -EINVAL;
-	vm->vm_suspend_type = VM_STATE_RUNNING;
+	vm->vm_suspend_type = VM_STATE_CREATED;
 	spin_lock(&vm_list_lock);
 	list_add(&vm->list, &vm_list);
 	spin_unlock(&vm_list_lock);
@@ -1109,6 +1109,9 @@ void gh_uevent_notify_change(unsigned int type, struct gh_vm *vm)
 		add_uevent_var(env, "EVENT=suspended");
 		add_uevent_var(env, "vm_suspend_type=%lld", vm->vm_suspend_type);
 	}
+	else if (type == GH_EVENT_VM_RESUMED) {
+		add_uevent_var(env, "EVENT=resumed");
+	}
 
 	add_uevent_var(env, "vm_name=%s", vm->fw_name);
 	env->envp[env->envp_idx++] = NULL;
@@ -1138,7 +1141,13 @@ static irqreturn_t gh_susp_irq_handler(int irq, void *data)
 	}
 
 	if (vpmg_state == VM_STATE_RUNNING) {
-		pr_debug("VM is in running state\n");
+		if (vm->vm_suspend_type == VM_STATE_CREATED) {
+			vm->vm_suspend_type = VM_STATE_RUNNING;
+			pr_debug("VM:%d is in running state\n", vm->vmid);
+		} else {
+			pr_debug("VM:%d resumed and is running\n", vm->vmid);
+			gh_uevent_notify_change(GH_EVENT_VM_RESUMED, vm);
+		}
 	}
 	else if (vpmg_state == VM_STATE_CPU_SUSPENDED ||
 		 vpmg_state == VM_STATE_SYSTEM_SUSPENDED) {
@@ -1146,7 +1155,7 @@ static irqreturn_t gh_susp_irq_handler(int irq, void *data)
 		vm->vm_suspend_type = vpmg_state;
 		spin_unlock_irqrestore(&vm->susp_vm_lock, flags);
 		gh_uevent_notify_change(GH_EVENT_VM_SUSPENDED, vm);
-		pr_debug("VM is in system suspend state\n");
+		pr_debug("VM:%d is in system suspend state\n", vm->vmid);
 	}
 	else
 		pr_err("VPM Group state invalid/non-existent\n");

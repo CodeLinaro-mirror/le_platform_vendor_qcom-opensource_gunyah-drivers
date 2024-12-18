@@ -53,18 +53,18 @@ depmod -a
 %install
 # installing gunyah header files.
 mkdir -p %{buildroot}/usr/include/linux/gunyah
-install -m 755 include/linux/gunyah/gh_common.h %{buildroot}/usr/include/linux/gunyah
+install -m 755 include/linux/gunyah/gh_common_oot.h %{buildroot}/usr/include/linux/gunyah/gh_common.h
 install -m 755 include/linux/gunyah/gh_dbl.h %{buildroot}/usr/include/linux/gunyah
 install -m 755 include/linux/gunyah/gh_errno.h %{buildroot}/usr/include/linux/gunyah
 install -m 755 include/linux/gunyah/gh_irq_lend.h %{buildroot}/usr/include/linux/gunyah
 install -m 755 include/linux/gunyah/gh_mem_notifier.h %{buildroot}/usr/include/linux/gunyah
 install -m 755 include/linux/gunyah/gh_msgq.h %{buildroot}/usr/include/linux/gunyah
-install -m 755 include/linux/gunyah/gh_rm_drv.h %{buildroot}/usr/include/linux/gunyah
+install -m 755 include/linux/gunyah/gh_rm_drv_oot.h %{buildroot}/usr/include/linux/gunyah/gh_rm_drv.h
 install -m 755 include/linux/gunyah/gh_vm.h %{buildroot}/usr/include/linux/gunyah
 install -m 755 include/linux/gunyah/hcall_common.h %{buildroot}/usr/include/linux/gunyah
 
 mkdir -p %{buildroot}/usr/include/uapi/linux/
-install -m 755 include/uapi/linux/gunyah.h %{buildroot}/usr/include/uapi/linux/
+install -m 755 include/uapi/linux/gunyah_oot.h %{buildroot}/usr/include/uapi/linux/gunyah.h
 install_mod_path=%{buildroot}/usr/lib/modules/%{kversion_with_debug}
 mkdir -p ${install_mod_path}/extra/arch/arm64/gunyah/
 install -m 644 arch/arm64/gunyah/gh_arm_drv.ko  ${install_mod_path}/extra/arch/arm64/gunyah/gh_arm_drv.ko
@@ -91,17 +91,17 @@ rm -rf $RPM_BUILD_ROOT
 %{kernel_module_path}/extra/drivers/virt/gunyah/gunyah.ko
 %{kernel_module_path}/extra/drivers/tty/hvc/hvc_gunyah.ko
 
-%{_includedir}/uapi/linux/gunyah_oot.h
+%{_includedir}/uapi/linux/gunyah.h
 %{_sysconfdir}/modules-load.d/%{kmod_name}.conf
 
 %files headers
-%{_includedir}/linux/gunyah/gh_common_oot.h
+%{_includedir}/linux/gunyah/gh_common.h
 %{_includedir}/linux/gunyah/gh_dbl.h
 %{_includedir}/linux/gunyah/gh_errno.h
 %{_includedir}/linux/gunyah/gh_irq_lend.h
 %{_includedir}/linux/gunyah/gh_mem_notifier.h
 %{_includedir}/linux/gunyah/gh_msgq.h
-%{_includedir}/linux/gunyah/gh_rm_drv_oot.h
+%{_includedir}/linux/gunyah/gh_rm_drv.h
 %{_includedir}/linux/gunyah/gh_vm.h
 %{_includedir}/linux/gunyah/hcall_common.h
 

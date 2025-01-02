@@ -216,8 +216,9 @@ int gh_msgq_recv(void *msgq_client_desc,
 
 	spin_unlock(&cap_table_entry->cap_entry_lock);
 
-	if (wait_event_interruptible(cap_table_entry->rx_wq,
-				cap_table_entry->rx_cap_id != GH_CAPID_INVAL))
+	ret = wait_event_interruptible(cap_table_entry->rx_wq,
+				cap_table_entry->rx_cap_id != GH_CAPID_INVAL);
+	if (ret)
 		return -ERESTARTSYS;
 
 	spin_lock(&cap_table_entry->cap_entry_lock);
@@ -235,8 +236,9 @@ int gh_msgq_recv(void *msgq_client_desc,
 		if (cap_table_entry->rx_empty && (flags & GH_MSGQ_NONBLOCK))
 			return -EAGAIN;
 
-		if (wait_event_interruptible(cap_table_entry->rx_wq,
-					!cap_table_entry->rx_empty))
+		ret = wait_event_interruptible(cap_table_entry->rx_wq,
+					!cap_table_entry->rx_empty);
+		if (ret)
 			return -ERESTARTSYS;
 
 		ret = __gh_msgq_recv(cap_table_entry, buff, buff_size,
@@ -345,8 +347,9 @@ int gh_msgq_send(void *msgq_client_desc,
 
 	spin_unlock(&cap_table_entry->cap_entry_lock);
 
-	if (wait_event_interruptible(cap_table_entry->tx_wq,
-				cap_table_entry->tx_cap_id != GH_CAPID_INVAL))
+	ret = wait_event_interruptible(cap_table_entry->tx_wq,
+				cap_table_entry->tx_cap_id != GH_CAPID_INVAL);
+	if (ret)
 		return -ERESTARTSYS;
 
 	spin_lock(&cap_table_entry->cap_entry_lock);
@@ -364,8 +367,9 @@ int gh_msgq_send(void *msgq_client_desc,
 		if (cap_table_entry->tx_full && (flags & GH_MSGQ_NONBLOCK))
 			return -EAGAIN;
 
-		if (wait_event_interruptible(cap_table_entry->tx_wq,
-					!cap_table_entry->tx_full))
+		ret = wait_event_interruptible(cap_table_entry->tx_wq,
+					!cap_table_entry->tx_full);
+		if (ret)
 			return -ERESTARTSYS;
 
 		ret = __gh_msgq_send(cap_table_entry, buff, size, flags);

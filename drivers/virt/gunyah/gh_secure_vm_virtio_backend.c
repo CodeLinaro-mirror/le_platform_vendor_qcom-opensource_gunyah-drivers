@@ -1054,12 +1054,14 @@ done:
 
 int gh_parse_virtio_properties(struct device *dev, const char *vm_name)
 {
-	struct device_node *np = dev->of_node;
+	struct device_node *np;
 	int idx = 0;
 	u32 len, nr_entries = 0;
 
 	if (!dev || !vm_name)
 		return -EINVAL;
+
+	np = dev->of_node;
 
 	if (of_find_property(np, "virtio-backends", &len))
 		nr_entries = len / 4;
@@ -1352,6 +1354,10 @@ void gh_virtio_mmio_app_exit(gh_vmid_t vmid, const char *vm_name)
 	u32 refcount;
 
 	vm = find_vm_by_name(vm_name);
+	if (!vm) {
+		pr_debug("%s: VM name %s not found\n", VIRTIO_PRINT_MARKER, vm_name);
+		return;
+	}
 
 	spin_lock(&vm->vb_dev_lock);
 	list_for_each_entry(vb_dev, &vm->vb_dev_list, list) {

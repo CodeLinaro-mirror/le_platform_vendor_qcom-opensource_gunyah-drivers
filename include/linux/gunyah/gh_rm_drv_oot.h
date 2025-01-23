@@ -176,7 +176,6 @@ struct gh_notify_vmid_desc {
 #define GH_RM_VM_STATUS_EXITED		9
 #define GH_RM_VM_STATUS_RESETTING	10
 #define GH_RM_VM_STATUS_RESET		11
-#define GH_RM_VM_STATUS_EXITED_TO_FREE	12
 
 #define GH_RM_OS_STATUS_NONE		0
 #define GH_RM_OS_STATUS_EARLY_BOOT	1

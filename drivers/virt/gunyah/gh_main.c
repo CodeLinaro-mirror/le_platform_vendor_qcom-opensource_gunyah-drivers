@@ -296,7 +296,6 @@ static void gh_destroy_vm(struct kref *kref)
 	memset(vm->fw_name, 0, GH_VM_FW_NAME_MAX);
 
 clean_vm:
-	gh_wait_for_vm_status(vm, GH_RM_VM_STATUS_EXITED_TO_FREE);
 	spin_lock(&vm_list_lock);
 	list_del(&vm->list);
 	spin_unlock(&vm_list_lock);
@@ -315,13 +314,13 @@ static void gh_put_vm(struct gh_vm *vm)
 	kref_put(&vm->kref, gh_destroy_vm);
 }
 
-static struct gh_vm *find_vm_by_name(const char *vm_name)
+static struct gh_vm *find_and_get_vm_by_name(const char *vm_name)
 {
 	struct gh_vm *vm = NULL, *tmp;
 
 	spin_lock(&vm_list_lock);
 	list_for_each_entry(tmp, &vm_list, list) {
-		if (!strcmp(tmp->fw_name, vm_name)) {
+		if (!strcmp(tmp->fw_name, vm_name) && gh_get_vm(tmp)) {
 			vm = tmp;
 			break;
 		}
@@ -1046,24 +1045,23 @@ static long gh_dev_ioctl_wait_for_exit(unsigned long arg)
 				sizeof(vm_name_and_status)))
 		return -EFAULT;
 
-	vm = find_vm_by_name(vm_name_and_status.name);
+	vm = find_and_get_vm_by_name(vm_name_and_status.name);
 	if (!vm)
 		return -EINVAL;
 
 	ret = gh_ioc_wait_for_vm_status(vm, GH_RM_VM_STATUS_EXITED);
 	if (ret)
-		return ret;
+		goto err_put_vm;
 
 	vm_name_and_status.reason = (u32)vm->exit_type;
 	if (copy_to_user((void __user *)arg, &vm_name_and_status,
-				sizeof(vm_name_and_status)))
+				sizeof(vm_name_and_status))) {
 		ret = -EFAULT;
-
-	if (kref_read(&vm->kref) == 0) {
-		vm->status.vm_status = GH_RM_VM_STATUS_EXITED_TO_FREE;
-		wake_up_interruptible(&vm->vm_status_wait);
+		goto err_put_vm;
 	}
 
+err_put_vm:
+	gh_put_vm(vm);
 	return ret;
 }
 

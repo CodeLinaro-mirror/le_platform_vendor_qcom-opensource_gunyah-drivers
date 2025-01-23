@@ -136,7 +136,7 @@ static int gh_wait_for_vm_status_intr(struct gh_vm *vm, int wait_status)
 {
 	int ret = 0;
 
-	ret = wait_event_interruptible(vm->vm_status_wait,
+	ret = wait_event_freezable(vm->vm_status_wait,
 			vm->status.vm_status == wait_status);
 	if (ret < 0)
 		pr_err("Wait for VM_STATUS %d interrupted\n", wait_status);
@@ -148,7 +148,7 @@ static int gh_ioc_wait_for_vm_status(struct gh_vm *vm, int wait_status)
 {
 	int ret = 0;
 
-	ret = wait_event_interruptible(vm->vm_exit_ioc_wait,
+	ret = wait_event_freezable(vm->vm_exit_ioc_wait,
 			vm->status.vm_status == wait_status);
 	if (ret < 0)
 		pr_err("Wait for VM_STATUS %d interrupted\n", wait_status);

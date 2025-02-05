@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
- * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2025 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
@@ -766,6 +766,10 @@ static int gh_vm_shared_mem_probe(struct gh_sec_vm_dev *sec_vm_dev)
 			sec_vm_dev->sh_mem_regions[i].is_phantom = true;
 		else
 			sec_vm_dev->sh_mem_regions[i].is_phantom = false;
+		if (of_property_read_bool(node, "qcom,is-iomem"))
+			sec_vm_dev->sh_mem_regions[i].is_iomem = true;
+		else
+			sec_vm_dev->sh_mem_regions[i].is_iomem = false;
 
 		if (of_property_read_bool(node, "qcom,is-shared"))
 			sec_vm_dev->sh_mem_regions[i].is_shared = true;

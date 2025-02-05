@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /*
- * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2025 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #ifndef _GH_PRIVATE_H
@@ -65,6 +65,7 @@ struct gh_shmem {
 	gh_label_t gunyah_label;
 	bool is_shared;
 	bool is_phantom;
+	bool is_iomem;
 	gh_memparcel_handle_t shmem_handle;
 };
 

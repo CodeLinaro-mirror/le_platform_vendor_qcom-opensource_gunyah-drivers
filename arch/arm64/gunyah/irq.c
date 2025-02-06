@@ -13,9 +13,13 @@
 
 #define GIC_V3_SPI_MAX		1019
 
+#define GIC_V3_ESPI_MAX 	5119
+
 #define GH_RM_NO_IRQ_ALLOC	-1
 
 #define IRQ_OFFSET 32
+
+#define ESPI_OFFSET 4096
 
 static DEFINE_IDR(gh_rm_free_virq_idr);
 
@@ -31,16 +35,28 @@ int gh_get_irq(u32 virq, u32 type, struct fwnode_handle *fw_handle)
 {
 	struct irq_fwspec fwspec = {};
 
-	if (virq < IRQ_OFFSET || virq >= GIC_V3_SPI_MAX) {
-		pr_warn("%s: expecting an SPI from RM, but got GIC IRQ %d\n",
-			__func__, virq);
+	if (virq < IRQ_OFFSET) {
+		pr_warn("%s: Unexpected virq: %d\n", __func__, virq);
+			return -EINVAL;
+	} else if (virq <= GIC_V3_SPI_MAX) {
+		fwspec.fwnode = fw_handle;
+		fwspec.param_count = 3;
+		fwspec.param[0] = GIC_SPI;
+		fwspec.param[1] = virq - IRQ_OFFSET; /* virq 32 -> SPI 0 */
+		fwspec.param[2] = type;
+	} else if (virq < ESPI_OFFSET) {
+		pr_warn("%s: Unexpected virq: %d\n", __func__, virq);
+		return -EINVAL;
+	} else if (virq <= GIC_V3_ESPI_MAX) {
+		fwspec.fwnode = fw_handle;
+		fwspec.param_count = 3;
+		fwspec.param[0] = GIC_ESPI;
+		fwspec.param[1] = virq - 4096; /* virq 4096 -> ESPI 0 */
+		fwspec.param[2] = type;
+	} else {
+		pr_warn("%s: Unexpected virq: %d\n", __func__, virq);
+		return -EINVAL;
 	}
-
-	fwspec.fwnode = fw_handle;
-	fwspec.param_count = 3;
-	fwspec.param[0] = GIC_SPI;
-	fwspec.param[1] = virq - IRQ_OFFSET;
-	fwspec.param[2] = type;
 
 	return irq_create_fwspec_mapping(&fwspec);
 }

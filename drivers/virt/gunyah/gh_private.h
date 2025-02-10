@@ -15,6 +15,7 @@
 #define GH_EVENT_CREATE_VM 0
 #define GH_EVENT_DESTROY_VM 1
 #define GH_EVENT_VM_SUSPENDED 2
+#define GH_EVENT_VM_RESUMED 3
 #define GH_MAX_VCPUS 8
 #define GH_MAX_VMIDS 16
 
@@ -41,12 +42,13 @@ struct gh_vm {
 	wait_queue_head_t vm_status_wait;
 	wait_queue_head_t vm_exit_ioc_wait;
 	int exit_type;
-	struct kref kref;
+	refcount_t users_count;
 	gh_memparcel_handle_t mem_handle;
 	struct mutex vm_lock;
 	struct list_head list;
 	gh_capid_t cap_id;
 	int susp_irq;
+	char susp_irq_name[SUSP_IRQ_NAME_MAX];
 	uint64_t vm_suspend_type;
 	spinlock_t susp_vm_lock;
 };

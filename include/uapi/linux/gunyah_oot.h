@@ -23,6 +23,7 @@
  * fw_name is used to find the secure VM image by name to be loaded.
  */
 #define GH_VM_FW_NAME_MAX		16
+#define SUSP_IRQ_NAME_MAX		16
 
 /** @struct gh_fw_name
  * A structure to be passed to GH_VM_SET_FM_NAME ioctl
@@ -72,6 +73,7 @@ struct gh_fw_name_and_exit_status {
  * VM_STATE_CPU_SUSPENDED corresponds to S2idle (PSCI_CPU_SUSPEND)
  * while VM_STATE_SYSTEM_SUSPENDED correlates to S2R (PSCI_SYSTEM_SUSPEND).
  */
+#define VM_STATE_CREATED			0
 #define VM_STATE_RUNNING			1
 #define VM_STATE_CPU_SUSPENDED			2
 #define VM_STATE_SYSTEM_SUSPENDED		3

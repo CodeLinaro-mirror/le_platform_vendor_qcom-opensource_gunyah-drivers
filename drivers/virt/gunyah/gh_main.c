@@ -26,7 +26,6 @@
 #include "gvm_dump_debugfs.h"
 
 #define MAX_VCPU_NAME		20 /* gh-vcpu:u32_max +1 */
-#define MAX_VM_SUSP_LABEL	18 /* vm_u16_max_susp_irq + 1 */
 
 SRCU_NOTIFIER_HEAD_STATIC(gh_vm_notifier);
 static DEFINE_SPINLOCK(vm_list_lock);
@@ -49,6 +48,22 @@ gh_rm_call_and_set_status(vm_start);
 
 #define gh_wait_for_vm_status(vm, wait_status) 				\
 	wait_event(vm->vm_status_wait, (vm->status.vm_status == wait_status))
+
+static struct gh_vm *find_vm_by_name(const char *vm_name)
+{
+	struct gh_vm *vm = NULL, *tmp;
+
+	spin_lock(&vm_list_lock);
+	list_for_each_entry(tmp, &vm_list, list) {
+		if (!strcmp(tmp->fw_name, vm_name)) {
+			vm = tmp;
+			break;
+		}
+	}
+	spin_unlock(&vm_list_lock);
+
+	return vm;
+}
 
 static struct gh_vm* find_vm_by_id(gh_vmid_t vmid)
 {
@@ -136,7 +151,7 @@ static int gh_wait_for_vm_status_intr(struct gh_vm *vm, int wait_status)
 {
 	int ret = 0;
 
-	ret = wait_event_interruptible(vm->vm_status_wait,
+	ret = wait_event_freezable(vm->vm_status_wait,
 			vm->status.vm_status == wait_status);
 	if (ret < 0)
 		pr_err("Wait for VM_STATUS %d interrupted\n", wait_status);
@@ -148,7 +163,7 @@ static int gh_ioc_wait_for_vm_status(struct gh_vm *vm, int wait_status)
 {
 	int ret = 0;
 
-	ret = wait_event_interruptible(vm->vm_exit_ioc_wait,
+	ret = wait_event_freezable(vm->vm_exit_ioc_wait,
 			vm->status.vm_status == wait_status);
 	if (ret < 0)
 		pr_err("Wait for VM_STATUS %d interrupted\n", wait_status);
@@ -272,10 +287,9 @@ void gh_destroy_vcpu(struct gh_vcpu *vcpu)
 	vm->created_vcpus--;
 }
 
-static void gh_destroy_vm(struct kref *kref)
+void gh_destroy_vm(struct gh_vm *vm)
 {
 	int vcpu_id = 0;
-	struct gh_vm *vm = container_of(kref, struct gh_vm, kref);
 
 	if (vm->status.vm_status == GH_RM_VM_STATUS_NO_STATE)
 		goto clean_vm;
@@ -297,7 +311,6 @@ static void gh_destroy_vm(struct kref *kref)
 	memset(vm->fw_name, 0, GH_VM_FW_NAME_MAX);
 
 clean_vm:
-	gh_wait_for_vm_status(vm, GH_RM_VM_STATUS_EXITED_TO_FREE);
 	spin_lock(&vm_list_lock);
 	list_del(&vm->list);
 	spin_unlock(&vm_list_lock);
@@ -306,30 +319,15 @@ clean_vm:
 	kfree(vm);
 }
 
-static int __must_check gh_get_vm(struct gh_vm *vm)
+static void gh_get_vm(struct gh_vm *vm)
 {
-	return kref_get_unless_zero(&vm->kref);
+	refcount_inc(&vm->users_count);
 }
 
 static void gh_put_vm(struct gh_vm *vm)
 {
-	kref_put(&vm->kref, gh_destroy_vm);
-}
-
-static struct gh_vm *find_vm_by_name(const char *vm_name)
-{
-	struct gh_vm *vm = NULL, *tmp;
-
-	spin_lock(&vm_list_lock);
-	list_for_each_entry(tmp, &vm_list, list) {
-		if (!strcmp(tmp->fw_name, vm_name)) {
-			vm = tmp;
-			break;
-		}
-	}
-	spin_unlock(&vm_list_lock);
-
-	return vm;
+	if (refcount_dec_and_test(&vm->users_count))
+		gh_destroy_vm(vm);
 }
 
 static int gh_vcpu_release(struct inode *inode, struct file *filp)
@@ -495,10 +493,8 @@ static long gh_vm_ioctl_create_vcpu(struct gh_vm *vm, u32 id)
 		goto err_put_fd;
 	}
 
-	if (unlikely(!gh_get_vm(vm)))
-		goto err_put_fd;
-
 	fd_install(fd, file);
+	gh_get_vm(vm);
 
 	vm->vcpus[id] = vcpu;
 	vm->created_vcpus++;
@@ -988,13 +984,13 @@ static struct gh_vm *gh_create_vm(void)
 		kfree(vm);
 		return ERR_PTR(ret);
 	}
-	kref_init(&vm->kref);
+	refcount_set(&vm->users_count, 1);
 	init_waitqueue_head(&vm->vm_status_wait);
 	init_waitqueue_head(&vm->vm_exit_ioc_wait);
 	vm->status.vm_status = GH_RM_VM_STATUS_NO_STATE;
 	vm->exit_type = -EINVAL;
 	vm->susp_irq = -EINVAL;
-	vm->vm_suspend_type = VM_STATE_RUNNING;
+	vm->vm_suspend_type = VM_STATE_CREATED;
 	spin_lock(&vm_list_lock);
 	list_add(&vm->list, &vm_list);
 	spin_unlock(&vm_list_lock);
@@ -1058,14 +1054,9 @@ static long gh_dev_ioctl_wait_for_exit(unsigned long arg)
 	vm_name_and_status.reason = (u32)vm->exit_type;
 	if (copy_to_user((void __user *)arg, &vm_name_and_status,
 				sizeof(vm_name_and_status)))
-		ret = -EFAULT;
+		return -EFAULT;
 
-	if (kref_read(&vm->kref) == 0) {
-		vm->status.vm_status = GH_RM_VM_STATUS_EXITED_TO_FREE;
-		wake_up_interruptible(&vm->vm_status_wait);
-	}
-
-	return ret;
+	return 0;
 }
 
 static long gh_dev_ioctl(struct file *filp,
@@ -1118,6 +1109,9 @@ void gh_uevent_notify_change(unsigned int type, struct gh_vm *vm)
 		add_uevent_var(env, "EVENT=suspended");
 		add_uevent_var(env, "vm_suspend_type=%lld", vm->vm_suspend_type);
 	}
+	else if (type == GH_EVENT_VM_RESUMED) {
+		add_uevent_var(env, "EVENT=resumed");
+	}
 
 	add_uevent_var(env, "vm_name=%s", vm->fw_name);
 	env->envp[env->envp_idx++] = NULL;
@@ -1147,7 +1141,13 @@ static irqreturn_t gh_susp_irq_handler(int irq, void *data)
 	}
 
 	if (vpmg_state == VM_STATE_RUNNING) {
-		pr_debug("VM is in running state\n");
+		if (vm->vm_suspend_type == VM_STATE_CREATED) {
+			vm->vm_suspend_type = VM_STATE_RUNNING;
+			pr_debug("VM:%d is in running state\n", vm->vmid);
+		} else {
+			pr_debug("VM:%d resumed and is running\n", vm->vmid);
+			gh_uevent_notify_change(GH_EVENT_VM_RESUMED, vm);
+		}
 	}
 	else if (vpmg_state == VM_STATE_CPU_SUSPENDED ||
 		 vpmg_state == VM_STATE_SYSTEM_SUSPENDED) {
@@ -1155,7 +1155,7 @@ static irqreturn_t gh_susp_irq_handler(int irq, void *data)
 		vm->vm_suspend_type = vpmg_state;
 		spin_unlock_irqrestore(&vm->susp_vm_lock, flags);
 		gh_uevent_notify_change(GH_EVENT_VM_SUSPENDED, vm);
-		pr_debug("VM is in system suspend state\n");
+		pr_debug("VM:%d is in system suspend state\n", vm->vmid);
 	}
 	else
 		pr_err("VPM Group state invalid/non-existent\n");
@@ -1167,25 +1167,28 @@ static int set_vm_vpm_grp_info(gh_vmid_t vmid, gh_capid_t cap_id, int virq_num)
 {
 	int ret = 0;
 	struct gh_vm *vm;
-	char susp_label[MAX_VM_SUSP_LABEL];
 
 	if (virq_num < 0) {
 		pr_err("%s: Invalid IRQ number\n", __func__);
 		return -EINVAL;
 	}
 
-	snprintf(susp_label, sizeof(susp_label), "vm_%d_susp_irq", vmid);
-	ret = request_irq(virq_num, gh_susp_irq_handler, 0, susp_label, NULL);
-	if (ret < 0) {
-		pr_err("%s: IRQ registration failed ret=%d\n", __func__, ret);
-		return ret;
-	}
-
 	vm = find_vm_by_id(vmid);
 	if (vm) {
 		vm->cap_id = cap_id;
 		vm->susp_irq = virq_num;
+		snprintf(vm->susp_irq_name, sizeof(vm->susp_irq_name), "vm%d_susp_irq", vmid);
+	} else {
+		pr_err("%s: cannot find vm %d\n", __func__, vmid);
+		return ret;
 	}
+
+	ret = request_irq(virq_num, gh_susp_irq_handler, 0, vm->susp_irq_name, NULL);
+	if (ret < 0) {
+		pr_err("%s: IRQ registration failed ret=%d\n", __func__, ret);
+		return ret;
+	}
+	pr_info("%s: IRQ registration %s ret=%d\n", __func__, vm->susp_irq_name, ret);
 
 	return ret;
 }

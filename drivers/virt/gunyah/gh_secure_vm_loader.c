@@ -405,6 +405,10 @@ static int gh_vm_mem_mmap(struct file *file, struct vm_area_struct *vma)
 {
 	struct gh_sec_vm_fw_mem *mem_region = file->private_data;
 	size_t mmap_size;
+	unsigned long npages;
+	struct page **pages;
+	dma_addr_t paddr;
+	int i, ret = 0;
 
 	if (!mem_region)
 		return -EINVAL;
@@ -413,20 +417,29 @@ static int gh_vm_mem_mmap(struct file *file, struct vm_area_struct *vma)
 	if (mmap_size != mem_region->fw_size)
 		return -EINVAL;
 
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(6, 3, 0))
-	vm_flags_set(vma, vma->vm_flags | VM_DONTEXPAND | VM_DONTDUMP);
-#else
-	vma->vm_flags = vma->vm_flags | VM_DONTEXPAND | VM_DONTDUMP;
-#endif
+	npages = mmap_size >> PAGE_SHIFT;
+	pages = kvmalloc_array(npages, sizeof(struct page *), GFP_KERNEL);
+	if (!pages)
+		return -ENOMEM;
 
-	if (io_remap_pfn_range(vma, vma->vm_start,
-			__phys_to_pfn(mem_region->fw_phys),
-			mmap_size, vma->vm_page_prot)) {
-		pr_err("%s: ioremap_pfn_range failed\n", __func__);
-		return -EAGAIN;
+	paddr = mem_region->fw_phys;
+	for (i = 0; i < npages; i++) {
+		pages[i] = phys_to_page(paddr);
+		paddr += PAGE_SIZE;
 	}
 
-	return 0;
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(6, 3, 0))
+	vm_flags_set(vma, vma->vm_flags | VM_DONTEXPAND | VM_DONTDUMP | VM_MIXEDMAP);
+#else
+	vma->vm_flags = vma->vm_flags | VM_DONTEXPAND | VM_DONTDUMP | VM_MIXEDMAP;
+#endif
+
+	ret = vm_insert_pages(vma, vma->vm_start, pages, &npages);
+	if (ret)
+		pr_err("%s: Remapping memory, error: %d\n", __func__, ret);
+
+	kvfree(pages);
+	return ret;
 }
 
 

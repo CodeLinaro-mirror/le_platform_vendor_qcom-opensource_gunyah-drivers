@@ -18,6 +18,9 @@
 #define GH_EVENT_VM_RESUMED 3
 #define GH_MAX_VCPUS 8
 #define GH_MAX_VMIDS 16
+#define GH_SHIOMEM_LABEL_BASE 0x7E
+#define MAX_SHARED_IOMEM	 8 /* Max number of IOMEMs that can be shared */
+
 
 struct gh_mem_parcel {
 	phys_addr_t mem_phys;
@@ -67,6 +70,17 @@ struct gh_shmem {
 	bool is_phantom;
 	bool is_iomem;
 	gh_memparcel_handle_t shmem_handle;
+};
+
+/*
+ * The counts of VMs that share IO memory. This makes sure that when the context
+ * for GVM is created, only one call is made to RM to setup IO MEMSHARE，only when all
+ * destination GVMs are power-off, reclailm the shared IOMEMORY.
+ * Reserve 8 variates, the corresponding gunyah labels are from 0x7E to 0x85.
+*/
+struct gh_shiomem_info {
+	refcount_t ref_counts[MAX_SHARED_IOMEM];
+	gh_memparcel_handle_t shmem_handles[MAX_SHARED_IOMEM];
 };
 
 /*

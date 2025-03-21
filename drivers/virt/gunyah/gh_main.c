@@ -26,18 +26,12 @@
 #include "gvm_dump_debugfs.h"
 
 #define MAX_VCPU_NAME		20 /* gh-vcpu:u32_max +1 */
-#define MAX_SHARED_IOMEM	 8 /* Max number of IOMEMs that can be shared */
 
 SRCU_NOTIFIER_HEAD_STATIC(gh_vm_notifier);
 static DEFINE_SPINLOCK(vm_list_lock);
 static LIST_HEAD(vm_list);
 
-/*
- * Bookkeeping for gunyah labels of shared IO memory. This makes sure that when
- * the context for GVM is created, only one call is made to RM to setup IO MEMSHARE
-*/
-static u32 gh_shiomem_labels[MAX_SHARED_IOMEM];
-static u8 gh_shiomem_count;
+static struct gh_shiomem_info shiomem_info;
 
 /*
  * Support for RM calls and the wait for change of status
@@ -528,24 +522,32 @@ int gh_share_iomem(struct gh_vm *vm, struct gh_shmem *shmems)
 	int dst_vmids_count = 0;
 	phys_addr_t phys = shmems->base;
 	ssize_t size = shmems->size;
+	gh_memparcel_handle_t *shmem_handle;
+	refcount_t *ref_count;
 
-	/*
-	 * Bookkeeping for shared IOMEMs. Track the labels that were already
-	 * provided with a shared IOMEM. This makes sure that the MEMSHARE
-	 * RM API is called only once when creating GVM contexts.
-	 */
-	for (i = 0; i < gh_shiomem_count; i++) {
-		if (gh_shiomem_labels[i] == shmems->gunyah_label) {
-			return 0;
-		}
+	if (shmems->gunyah_label < GH_SHIOMEM_LABEL_BASE ||
+		shmems->gunyah_label > GH_SHIOMEM_LABEL_BASE + MAX_SHARED_IOMEM) {
+			pr_err("Shared iomemory gunyah label out of range,vm: %d label:%d\n",
+				 vm->vmid, shmems->gunyah_label);
+			return -EINVAL;
 	}
 
+	ref_count = &shiomem_info.ref_counts[shmems->gunyah_label - GH_SHIOMEM_LABEL_BASE];
+	shmem_handle = &shiomem_info.shmem_handles[shmems->gunyah_label - GH_SHIOMEM_LABEL_BASE];
+
+	if (refcount_read(ref_count) != 0) {
+		refcount_inc(ref_count);
+		return 0;
+	}
+	refcount_set(ref_count, 1);
 	dst_vmids_count += shmems->dst_vmids_count + 1; /* 1 for HLOS */
 	acl_desc = kzalloc(offsetof(struct gh_acl_desc,
 			   acl_entries[dst_vmids_count]),
 			   GFP_KERNEL);
-	if (!acl_desc)
+	if (!acl_desc) {
+		refcount_dec(ref_count);
 		return -ENOMEM;
+	}
 
 	acl_desc->n_acl_entries = dst_vmids_count;
 
@@ -561,6 +563,7 @@ int gh_share_iomem(struct gh_vm *vm, struct gh_shmem *shmems)
 
 	if(!sgl_desc){
 		kfree(acl_desc);
+		refcount_dec(ref_count);
 		return -ENOMEM;
 	}
 
@@ -569,17 +572,12 @@ int gh_share_iomem(struct gh_vm *vm, struct gh_shmem *shmems)
 	sgl_desc->sgl_entries[0].size = size;
 
 	ret = gh_rm_mem_share(GH_RM_MEM_TYPE_IO, 0, shmems->gunyah_label,
-			      acl_desc, sgl_desc, NULL, &shmems->shmem_handle);
-	if (ret)
+			 acl_desc, sgl_desc, NULL, &shmems->shmem_handle);
+	*shmem_handle = shmems->shmem_handle;
+	if (ret){
+		refcount_dec(ref_count);
 		pr_err("Failed to share IO memory for vmid:%d, label:%d rc:%d\n",
                                         vm->vmid, shmems->gunyah_label, ret);
-
-	/*
-	 * On success, track the gunyah label which was shared.
-	 */
-	else {
-		if (gh_shiomem_count < MAX_SHARED_IOMEM)
-			gh_shiomem_labels[gh_shiomem_count++] = shmems->gunyah_label;
 	}
 
 	kfree(acl_desc);
@@ -640,6 +638,8 @@ int gh_reclaim_shmem(struct gh_vm *vm, struct gh_shmem *shmems)
 	struct qcom_scm_vmperm *dstVM;
 	phys_addr_t phys = shmems->base;
 	ssize_t size = shmems->size;
+	gh_memparcel_handle_t *shmem_handle;
+	refcount_t *ref_count;
 	u64 srcvmid = 0;
 	u64 dstvmid = 0;
 
@@ -663,20 +663,22 @@ int gh_reclaim_shmem(struct gh_vm *vm, struct gh_shmem *shmems)
 	if (shmems->is_shared)
 		srcvmid |= BIT(QCOM_SCM_VMID_HLOS);
 
-	ret = gh_rm_mem_reclaim(shmems->shmem_handle, 0);
-	if (ret)
-		pr_err("Failed to reclaim memory for %d, %d\n",
-					vm->vmid, ret);
-
 	if (!shmems->is_iomem) {
+		ret = gh_rm_mem_reclaim(shmems->shmem_handle, 0);
+		if (ret)
+			pr_err("Failed to reclaim memory for %d, %d\n",
+						vm->vmid, ret);
+
 		ret = qcom_scm_assign_mem(phys, size, &srcvmid, dstVM, dst_vmids_count);
 		if (ret)
 			pr_err("failed qcom_assign for %pa address of size %zx - subsys VMid %d rc:%d\n",
-						&phys, size, dstVM[0].vmid, ret);
+							&phys, size, dstVM[0].vmid, ret);
 	} else {
-		for (i = 0; i < MAX_SHARED_IOMEM; i++) {
-			gh_shiomem_labels[i] = 0;
-			gh_shiomem_count = 0;
+		shmem_handle = &shiomem_info.shmem_handles[shmems->gunyah_label - GH_SHIOMEM_LABEL_BASE];
+		ref_count = &shiomem_info.ref_counts[shmems->gunyah_label - GH_SHIOMEM_LABEL_BASE];
+		if (refcount_dec_and_test(ref_count)) {
+			ret = gh_rm_mem_reclaim(*shmem_handle, 0);
+			*shmem_handle = 0;
 		}
 	}
 
@@ -860,7 +862,7 @@ int gh_provide_shmem(struct gh_vm *vm, struct gh_shmem *shmems)
 	ret = qcom_scm_assign_mem(phys, size, &srcvmid, dstVM, dst_vmids_count);
 	if (ret) {
 		pr_err("failed qcom_assign for %pa address of size %zx - subsys VMid %d rc:%d\n",
-			&phys, size, vmid, ret);
+			 &phys, size, vmid, ret);
 		goto err_assign_mem;
 	}
 

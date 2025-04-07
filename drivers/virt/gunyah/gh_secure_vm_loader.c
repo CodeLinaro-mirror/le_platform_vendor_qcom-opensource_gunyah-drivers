@@ -108,7 +108,7 @@ static u64 gh_sec_load_metadata(struct gh_sec_vm_dev *vm_dev,
 	void *metadata_start;
 	u64 image_start_addr = 0;
 	size_t mdata_size = 0;
-	u64 image_end_addr;
+	u64 image_end_addr = 0;
 	u64 image_size = 0;
 	u32 max_paddr = 0;
 	u64 moffset = 0;
@@ -217,6 +217,8 @@ static int gh_vm_loader_sec_load(struct gh_sec_vm_dev *vm_dev,
 	}
 
 	mem_parcels = devm_kcalloc(dev, vm_dev->fw_mem_count, sizeof(*mem_parcels), GFP_KERNEL);
+	if (!mem_parcels)
+		return -ENOMEM;
 
 	for (i = 0; i < vm_dev->fw_mem_count; i++) {
 		mem_parcels[i].mem_phys = vm_dev->fw_mem_regions[i].fw_phys;
@@ -561,6 +563,8 @@ int gh_secure_vm_loader_reclaim_fw(struct gh_vm *vm)
 	}
 
 	mem_parcels = devm_kcalloc(dev, sec_vm_dev->fw_mem_count, sizeof(*mem_parcels), GFP_KERNEL);
+	if (!mem_parcels)
+		return -ENOMEM;
 
 	for (i = 0; i < sec_vm_dev->fw_mem_count; i++) {
 		mem_parcels[i].mem_phys = sec_vm_dev->fw_mem_regions[i].fw_phys;

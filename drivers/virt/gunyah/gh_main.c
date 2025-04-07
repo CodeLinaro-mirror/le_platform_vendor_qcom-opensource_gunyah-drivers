@@ -1237,10 +1237,10 @@ static irqreturn_t gh_susp_irq_handler(int irq, void *data)
 
 	if (vpmg_state == VM_STATE_RUNNING) {
 		if (vm->vm_suspend_type == VM_STATE_CREATED) {
-			vm->vm_suspend_type == VM_STATE_RUNNING;
-			pr_debug("VM is in running state\n");
+			vm->vm_suspend_type = VM_STATE_RUNNING;
+			pr_debug("VM:%d is in running state\n", vm->vmid);
 		} else {
-			pr_debug("VM resumed is running\n");
+			pr_debug("VM:%d resumed and is running\n", vm->vmid);
 			gh_uevent_notify_change(GH_EVENT_VM_RESUMED, vm);
 		}
 	}
@@ -1250,7 +1250,7 @@ static irqreturn_t gh_susp_irq_handler(int irq, void *data)
 		vm->vm_suspend_type = vpmg_state;
 		spin_unlock_irqrestore(&vm->susp_vm_lock, flags);
 		gh_uevent_notify_change(GH_EVENT_VM_SUSPENDED, vm);
-		pr_debug("VM is in system suspend state\n");
+		pr_debug("VM:%d is in system suspend state\n", vm->vmid);
 	}
 	else
 		pr_err("VPM Group state invalid/non-existent\n");

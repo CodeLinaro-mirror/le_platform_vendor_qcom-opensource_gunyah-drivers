@@ -86,8 +86,9 @@ static int gh_dbl_validate_params(struct gh_dbl_desc *client_desc,
 
 		spin_unlock(&cap_table_entry->cap_entry_lock);
 
-		if (wait_event_interruptible(cap_table_entry->cap_wq,
-				cap_table_entry->rx_cap_id != GH_CAPID_INVAL))
+		ret = wait_event_interruptible(cap_table_entry->cap_wq,
+					cap_table_entry->rx_cap_id != GH_CAPID_INVAL);
+		if (ret)
 			return -ERESTARTSYS;
 
 	} else {
@@ -104,10 +105,10 @@ static int gh_dbl_validate_params(struct gh_dbl_desc *client_desc,
 
 		spin_unlock(&cap_table_entry->cap_entry_lock);
 
-		if (wait_event_interruptible(cap_table_entry->cap_wq,
-				cap_table_entry->tx_cap_id != GH_CAPID_INVAL))
+		ret = wait_event_interruptible(cap_table_entry->cap_wq,
+					cap_table_entry->tx_cap_id != GH_CAPID_INVAL);
+		if (ret)
 			return -ERESTARTSYS;
-
 	}
 
 	return 0;

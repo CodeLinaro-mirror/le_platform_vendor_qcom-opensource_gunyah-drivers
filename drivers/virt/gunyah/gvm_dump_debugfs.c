@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
- * Copyright (c) 2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2024-2025 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include <linux/kernel.h>
@@ -362,15 +362,15 @@ static int get_gvm_resource(struct gvm_ramdump_ctx *gvm_ctx, struct device *dev)
 			goto res_fail;
 		}
 
-		gvm_ctx->ramdump_start_addr = devm_kzalloc(dev, sizeof(phys_addr_t), GFP_KERNEL);
+		gvm_ctx->ramdump_start_addr = devm_kcalloc(dev, gvm_ctx->num_mem_regions, sizeof(phys_addr_t), GFP_KERNEL);
 		if (!gvm_ctx->ramdump_start_addr)
 			return -ENOMEM;
 
-		gvm_ctx->ramdump_size = devm_kzalloc(dev, sizeof(size_t), GFP_KERNEL);
+		gvm_ctx->ramdump_size = devm_kcalloc(dev, gvm_ctx->num_mem_regions, sizeof(size_t), GFP_KERNEL);
 		if (!gvm_ctx->ramdump_size)
 			return -ENOMEM;
 
-		gvm_ctx->mapped_addr = devm_kzalloc(dev, sizeof(void*), GFP_KERNEL);
+		gvm_ctx->mapped_addr = devm_kcalloc(dev, gvm_ctx->num_mem_regions, sizeof(void*), GFP_KERNEL);
 		if (!gvm_ctx->mapped_addr)
 			return -ENOMEM;
 

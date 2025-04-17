@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
- * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2025 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
@@ -30,6 +30,8 @@
 SRCU_NOTIFIER_HEAD_STATIC(gh_vm_notifier);
 static DEFINE_SPINLOCK(vm_list_lock);
 static LIST_HEAD(vm_list);
+
+static struct gh_shiomem_info shiomem_info;
 
 /*
  * Support for RM calls and the wait for change of status
@@ -509,6 +511,79 @@ err_destroy_vcpu:
 	return err;
 }
 
+int gh_share_iomem(struct gh_vm *vm, struct gh_shmem *shmems)
+{
+	struct gh_acl_desc *acl_desc;
+	struct gh_sgl_desc *sgl_desc;
+	int i;
+	int ret = 0;
+	int dst_vmids_count = 0;
+	phys_addr_t phys = shmems->base;
+	ssize_t size = shmems->size;
+	gh_memparcel_handle_t *shmem_handle;
+	refcount_t *ref_count;
+
+	if (shmems->gunyah_label < GH_SHIOMEM_LABEL_BASE ||
+		shmems->gunyah_label > GH_SHIOMEM_LABEL_BASE + MAX_SHARED_IOMEM) {
+			pr_err("Shared iomemory gunyah label out of range,vm: %d label:%d\n",
+				 vm->vmid, shmems->gunyah_label);
+			return -EINVAL;
+	}
+
+	ref_count = &shiomem_info.ref_counts[shmems->gunyah_label - GH_SHIOMEM_LABEL_BASE];
+	shmem_handle = &shiomem_info.shmem_handles[shmems->gunyah_label - GH_SHIOMEM_LABEL_BASE];
+
+	if (refcount_read(ref_count) != 0) {
+		refcount_inc(ref_count);
+		return 0;
+	}
+	refcount_set(ref_count, 1);
+	dst_vmids_count += shmems->dst_vmids_count + 1; /* 1 for HLOS */
+	acl_desc = kzalloc(offsetof(struct gh_acl_desc,
+			   acl_entries[dst_vmids_count]),
+			   GFP_KERNEL);
+	if (!acl_desc) {
+		refcount_dec(ref_count);
+		return -ENOMEM;
+	}
+
+	acl_desc->n_acl_entries = dst_vmids_count;
+
+	for (i = 0; i < shmems->dst_vmids_count; i++) {
+		acl_desc->acl_entries[i].vmid = shmems->dst_vmids[i];
+		acl_desc->acl_entries[i].perms = shmems->dst_perms[i];
+	}
+
+	acl_desc->acl_entries[i].vmid = QCOM_SCM_VMID_HLOS;
+	acl_desc->acl_entries[i].perms = QCOM_SCM_PERM_RW;
+	sgl_desc = kzalloc(offsetof(struct gh_sgl_desc, sgl_entries[1]),
+			   GFP_KERNEL);
+
+	if(!sgl_desc){
+		kfree(acl_desc);
+		refcount_dec(ref_count);
+		return -ENOMEM;
+	}
+
+	sgl_desc->n_sgl_entries = 1;
+	sgl_desc->sgl_entries[0].ipa_base = phys;
+	sgl_desc->sgl_entries[0].size = size;
+
+	ret = gh_rm_mem_share(GH_RM_MEM_TYPE_IO, 0, shmems->gunyah_label,
+			 acl_desc, sgl_desc, NULL, &shmems->shmem_handle);
+	*shmem_handle = shmems->shmem_handle;
+	if (ret){
+		refcount_dec(ref_count);
+		pr_err("Failed to share IO memory for vmid:%d, label:%d rc:%d\n",
+                                        vm->vmid, shmems->gunyah_label, ret);
+	}
+
+	kfree(acl_desc);
+	kfree(sgl_desc);
+
+	return ret;
+}
+
 int gh_reclaim_mem(struct gh_vm *vm, struct gh_mem_parcel *mem_parcels,
 					u32 mem_parcel_count, bool is_system_vm)
 {
@@ -561,6 +636,8 @@ int gh_reclaim_shmem(struct gh_vm *vm, struct gh_shmem *shmems)
 	struct qcom_scm_vmperm *dstVM;
 	phys_addr_t phys = shmems->base;
 	ssize_t size = shmems->size;
+	gh_memparcel_handle_t *shmem_handle;
+	refcount_t *ref_count;
 	u64 srcvmid = 0;
 	u64 dstvmid = 0;
 
@@ -584,15 +661,24 @@ int gh_reclaim_shmem(struct gh_vm *vm, struct gh_shmem *shmems)
 	if (shmems->is_shared)
 		srcvmid |= BIT(QCOM_SCM_VMID_HLOS);
 
-	ret = gh_rm_mem_reclaim(shmems->shmem_handle, 0);
-	if (ret)
-		pr_err("Failed to reclaim memory for %d, %d\n",
-					vm->vmid, ret);
+	if (!shmems->is_iomem) {
+		ret = gh_rm_mem_reclaim(shmems->shmem_handle, 0);
+		if (ret)
+			pr_err("Failed to reclaim memory for %d, %d\n",
+						vm->vmid, ret);
 
-	ret = qcom_scm_assign_mem(phys, size, &srcvmid, dstVM, dst_vmids_count);
-	if (ret)
-		pr_err("failed qcom_assign for %pa address of size %zx - subsys VMid %d rc:%d\n",
-						 &phys, size, dstVM[0].vmid, ret);
+		ret = qcom_scm_assign_mem(phys, size, &srcvmid, dstVM, dst_vmids_count);
+		if (ret)
+			pr_err("failed qcom_assign for %pa address of size %zx - subsys VMid %d rc:%d\n",
+							&phys, size, dstVM[0].vmid, ret);
+	} else {
+		shmem_handle = &shiomem_info.shmem_handles[shmems->gunyah_label - GH_SHIOMEM_LABEL_BASE];
+		ref_count = &shiomem_info.ref_counts[shmems->gunyah_label - GH_SHIOMEM_LABEL_BASE];
+		if (refcount_dec_and_test(ref_count)) {
+			ret = gh_rm_mem_reclaim(*shmem_handle, 0);
+			*shmem_handle = 0;
+		}
+	}
 
 	return ret;
 }
@@ -701,6 +787,9 @@ int gh_provide_shmem(struct gh_vm *vm, struct gh_shmem *shmems)
 	u64 dstvmid = 0;
 
 	src_vmids_count += shmems->src_vmids_count;
+	if (shmems->is_iomem)
+		return gh_share_iomem(vm, shmems);
+
 	srcVM = kzalloc(src_vmids_count * sizeof(struct qcom_scm_vmperm),
 						GFP_KERNEL);
 	if (!srcVM)

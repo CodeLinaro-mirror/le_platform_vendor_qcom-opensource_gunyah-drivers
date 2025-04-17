@@ -181,7 +181,7 @@ static int gh_vm_loader_sec_load(struct gh_sec_vm_dev *vm_dev,
 	struct device *dev = vm_dev->dev;
 	struct gh_mem_parcel *mem_parcels;
 	const struct firmware *fw;
-	char fw_name[GH_VM_FW_NAME_MAX];
+	char fw_name[GH_VM_FW_NAME_MAX * 2];
 	size_t metadata_size = 1;
 	u64 metadata_offset;
 	void *metadata;
@@ -189,7 +189,7 @@ static int gh_vm_loader_sec_load(struct gh_sec_vm_dev *vm_dev,
 	u32 fw_index = vm_dev->fw_index;
 	int ret = 0;
 
-	scnprintf(fw_name, ARRAY_SIZE(fw_name), "%s.mdt", vm_dev->vm_name);
+	scnprintf(fw_name, ARRAY_SIZE(fw_name), "%s/%s.mdt", vm_dev->vm_name, vm_dev->vm_name);
 
 	ret = request_firmware(&fw, fw_name, dev);
 	if (ret) {

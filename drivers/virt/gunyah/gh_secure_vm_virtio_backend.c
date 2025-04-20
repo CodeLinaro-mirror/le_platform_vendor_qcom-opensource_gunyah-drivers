@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
- * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2025 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include <linux/version.h>
@@ -32,6 +32,7 @@
 #include <linux/firmware/qcom/qcom_scm.h>
 #include "gh_secure_vm_virtio_backend.h"
 #include "hcall_virtio.h"
+#include "gh_private.h"
 
 #define CREATE_TRACE_POINTS
 #include <trace/events/gh_virtio_backend.h>
@@ -1159,10 +1160,9 @@ unshare_a_vm_buffer(gh_vmid_t self, gh_vmid_t peer, struct resource *r,
 		return ret;
 	}
 
-	ret = qcom_scm_assign_mem(r->start, resource_size(r), &srcVM, dst_perms,
-				      ARRAY_SIZE(dst_perms));
+	ret = gh_scm_assign_mem(r->start, resource_size(r), &srcVM, dst_perms, ARRAY_SIZE(dst_perms));
 	if (ret)
-		pr_err("%s: qcom_assign failed for addr=%llx size=%lld err=%d\n",
+		pr_err("%s: gh_scm_assign_mem failed for addr=%llx size=%lld err=%d\n",
 			VIRTIO_PRINT_MARKER, r->start, resource_size(r), ret);
 
 	return ret;
@@ -1211,11 +1211,10 @@ static int share_a_vm_buffer(gh_vmid_t self, gh_vmid_t peer, int gunyah_label,
 		kfree(acl);
 		return -ENOMEM;
 	}
+	ret = gh_scm_assign_mem(r->start, resource_size(r), &srcVM, dst_perms, ARRAY_SIZE(dst_perms));
 
-	ret = qcom_scm_assign_mem(r->start, resource_size(r), &srcVM, dst_perms,
-				      ARRAY_SIZE(dst_perms));
 	if (ret) {
-		pr_err("%s: qcom_assign failed for addr=%llx size=%lld err=%d\n",
+		pr_err("%s: gh_scm_assign_mem failed for addr=%llx size=%lld err=%d\n",
 		       VIRTIO_PRINT_MARKER, r->start, resource_size(r), ret);
 		kfree(acl);
 		kfree(sgl);
@@ -1237,8 +1236,7 @@ static int share_a_vm_buffer(gh_vmid_t self, gh_vmid_t peer, int gunyah_label,
 	if (ret) {
 		pr_err("%s: Sharing memory failed %d\n", VIRTIO_PRINT_MARKER, ret);
 		/* Attempt to assign resource back to HLOS */
-		qcom_scm_assign_mem(r->start, resource_size(r), &dstVM, src_perms,
-				ARRAY_SIZE(src_perms));
+		gh_scm_assign_mem(r->start, resource_size(r), &dstVM, src_perms, ARRAY_SIZE(src_perms));
 	}
 
 	kfree(acl);

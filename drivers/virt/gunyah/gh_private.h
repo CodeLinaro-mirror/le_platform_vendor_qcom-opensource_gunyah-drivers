@@ -12,15 +12,18 @@
 #include <linux/gunyah_oot.h>
 #include <linux/wait.h>
 
-#define GH_EVENT_CREATE_VM 0
-#define GH_EVENT_DESTROY_VM 1
-#define GH_EVENT_VM_SUSPENDED 2
-#define GH_EVENT_VM_RESUMED 3
-#define GH_MAX_VCPUS 8
-#define GH_MAX_VMIDS 16
-#define GH_SHIOMEM_LABEL_BASE 0x7E
-#define MAX_SHARED_IOMEM	 8 /* Max number of IOMEMs that can be shared */
-
+#define GH_EVENT_CREATE_VM		0
+#define GH_EVENT_DESTROY_VM		1
+#define GH_EVENT_VM_SUSPENDED		2
+#define GH_EVENT_VM_RESUMED		3
+#define GH_MAX_VCPUS			8
+#define GH_MAX_VMIDS			16
+#define GH_SHIOMEM_LABEL_BASE		0x7E
+#define MAX_SHARED_IOMEM		8 /* Max number of IOMEMs that can be shared */
+#define QCOM_SCM_VMID_AUTO_GVM_1	52
+#define QCOM_SCM_VMID_AUTO_GVM_2	53
+#define QCOM_SCM_VMID_AUTO_GVM_3	54
+#define QCOM_SCM_VMID_AUTO_GVM_4	55
 
 struct gh_mem_parcel {
 	phys_addr_t mem_phys;
@@ -96,5 +99,8 @@ long gh_vm_configure(u16 auth_mech, u64 image_offset,
 			u64 image_size, u64 dtb_offset, u64 dtb_size,
 			u32 pas_id, const char *fw_name, struct gh_vm *vm);
 void gh_uevent_notify_change(unsigned int type, struct gh_vm *vm);
+int gh_scm_assign_mem(phys_addr_t mem_addr, size_t mem_sz,
+		      u64 *srcvm, struct qcom_scm_vmperm *newvm,
+		      unsigned int dest_cnt);
 
 #endif /* _GH_PRIVATE_H */

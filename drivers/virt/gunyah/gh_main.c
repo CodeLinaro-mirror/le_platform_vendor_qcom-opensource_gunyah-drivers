@@ -584,6 +584,75 @@ int gh_share_iomem(struct gh_vm *vm, struct gh_shmem *shmems)
 	return ret;
 }
 
+static bool is_gh_vm_or_hlos(int vmid)
+{
+	switch (vmid) {
+	case QCOM_SCM_VMID_OEMVM:
+		fallthrough;
+	case QCOM_SCM_VMID_TVM:
+		fallthrough;
+	case QCOM_SCM_VMID_AUTO_GVM_1:
+		fallthrough;
+	case QCOM_SCM_VMID_AUTO_GVM_2:
+		fallthrough;
+	case QCOM_SCM_VMID_AUTO_GVM_3:
+		fallthrough;
+	case QCOM_SCM_VMID_AUTO_GVM_4:
+		fallthrough;
+	case QCOM_SCM_VMID_HLOS:
+		return true;
+	}
+
+	return false;
+}
+
+/*
+ * SCM ASSIGN Always needed for the following conditions:
+ * Source or Destination contain a CPZ VM.
+ * Source and Destination are exactly HLOS, ie. HLOS-RW -> HLOS-RO.
+
+ * SCM ASSIGN never needed when:
+ * Destination VMID is an HLOS or one of the gunyah managed VMs.
+*/
+bool gh_is_scm_assign_mem_required(u64 *src, const struct qcom_scm_vmperm *newvm,
+				   unsigned int dest_cnt)
+{
+	int ret, i;
+
+	for (i = 0; i < dest_cnt; i++)
+		if (!is_gh_vm_or_hlos(newvm[i].vmid))
+			return true;
+
+	for (i = 0; i < BITS_PER_TYPE(*src); i++) {
+		if (!(*src & BIT(i)))
+			continue;
+		if (!is_gh_vm_or_hlos(i))
+			return true;
+	}
+
+	if (hweight64(*src) == 1 && (*src & BIT(QCOM_SCM_VMID_HLOS)) &&
+		(dest_cnt == 1) && (newvm[0].vmid == QCOM_SCM_VMID_HLOS))
+		return true;
+
+	return false;
+}
+
+int gh_scm_assign_mem(phys_addr_t mem_addr, size_t mem_sz,
+		      u64 *srcvm, struct qcom_scm_vmperm *newvm,
+		      unsigned int dest_cnt)
+{
+	int ret = 0;
+	if (gh_is_scm_assign_mem_required(srcvm, newvm, dest_cnt))
+	{
+		ret = qcom_scm_assign_mem(mem_addr, mem_sz, srcvm, newvm, dest_cnt);
+		if (ret)
+			pr_err("failed qcom_scm_assign for %pa address of size %zx - subsys VMid %d rc:%d\n",
+				&mem_addr, mem_sz, *newvm, ret);
+	}
+
+	return ret;
+}
+
 int gh_reclaim_mem(struct gh_vm *vm, struct gh_mem_parcel *mem_parcels,
 					u32 mem_parcel_count, bool is_system_vm)
 {
@@ -606,10 +675,9 @@ int gh_reclaim_mem(struct gh_vm *vm, struct gh_mem_parcel *mem_parcels,
 	for (i = 0; i < mem_parcel_count; i++) {
 		phys = mem_parcels[i].mem_phys;
 		size = mem_parcels[i].mem_size;
-		ret = qcom_scm_assign_mem(phys, size, &srcvmid, destVM, ARRAY_SIZE(destVM));
+		ret = gh_scm_assign_mem(phys, size, &srcvmid, destVM, ARRAY_SIZE(destVM));
 		if (ret) {
-			pr_err("failed qcom_assign for %pa address of size %zx - subsys VMid %d rc:%d\n",
-				&phys, size, vmid, ret);
+			pr_err("gh_scm_assign_mem failed, ret: %d\n", ret);
 			return ret;
 		}
 
@@ -666,11 +734,9 @@ int gh_reclaim_shmem(struct gh_vm *vm, struct gh_shmem *shmems)
 		if (ret)
 			pr_err("Failed to reclaim memory for %d, %d\n",
 						vm->vmid, ret);
-
-		ret = qcom_scm_assign_mem(phys, size, &srcvmid, dstVM, dst_vmids_count);
+		ret = gh_scm_assign_mem(phys, size, &srcvmid, dstVM, dst_vmids_count);
 		if (ret)
-			pr_err("failed qcom_assign for %pa address of size %zx - subsys VMid %d rc:%d\n",
-							&phys, size, dstVM[0].vmid, ret);
+			pr_err("gh_scm_assign_mem failed, ret: %d\n", ret);
 	} else {
 		shmem_handle = &shiomem_info.shmem_handles[shmems->gunyah_label - GH_SHIOMEM_LABEL_BASE];
 		ref_count = &shiomem_info.ref_counts[shmems->gunyah_label - GH_SHIOMEM_LABEL_BASE];
@@ -728,10 +794,9 @@ int gh_provide_mem(struct gh_vm *vm, struct gh_mem_parcel *mem_parcels,
 		sgl_desc->sgl_entries[i].ipa_base = phys;
 		sgl_desc->sgl_entries[i].size = size;
 
-		ret = qcom_scm_assign_mem(phys, size, &srcvmid, destVM, ARRAY_SIZE(destVM));
+		ret = gh_scm_assign_mem(phys, size, &srcvmid, destVM, ARRAY_SIZE(destVM));
 		if (ret) {
-			pr_err("failed qcom_assign for %pa address of size %zx - subsys VMid %d rc:%d\n",
-				&phys, size, vmid, ret);
+			pr_err("gh_scm_assign_mem failed, ret: %d\n", ret);
 			goto err_assign_mem;
 		}
 
@@ -756,10 +821,9 @@ int gh_provide_mem(struct gh_vm *vm, struct gh_mem_parcel *mem_parcels,
 		for(i = 0; i < mem_parcel_count; i++) {
 			phys = mem_parcels[i].mem_phys;
 			size = mem_parcels[i].mem_size;
-			ret = qcom_scm_assign_mem(phys, size, &dstvmid, srcVM, ARRAY_SIZE(srcVM));
+			ret = gh_scm_assign_mem(phys, size, &dstvmid, srcVM, ARRAY_SIZE(srcVM));
 			if (ret)
-				pr_err("failed qcom_assign for %pa address of size %zx - subsys VMid %d rc:%d\n",
-						&phys, size, srcVM[0].vmid, ret);
+				pr_err("gh_scm_assign_mem failed, ret: %d\n", ret);
 
 			dstvmid = BIT(destVM[0].vmid) | BIT(destVM[1].vmid);
 		}
@@ -857,10 +921,9 @@ int gh_provide_shmem(struct gh_vm *vm, struct gh_shmem *shmems)
 	sgl_desc->sgl_entries[0].ipa_base = phys;
 	sgl_desc->sgl_entries[0].size = size;
 
-	ret = qcom_scm_assign_mem(phys, size, &srcvmid, dstVM, dst_vmids_count);
+	ret = gh_scm_assign_mem(phys, size, &srcvmid, dstVM, dst_vmids_count);
 	if (ret) {
-		pr_err("failed qcom_assign for %pa address of size %zx - subsys VMid %d rc:%d\n",
-			 &phys, size, vmid, ret);
+		pr_err("gh_scm_assign_mem failed, ret: %d\n", ret);
 		goto err_assign_mem;
 	}
 
@@ -872,10 +935,9 @@ int gh_provide_shmem(struct gh_vm *vm, struct gh_shmem *shmems)
 								         sgl_desc, NULL, &shmems->shmem_handle);
 	}
 	if (ret) {
-		ret = qcom_scm_assign_mem(phys, size, &dstvmid, srcVM, src_vmids_count);
+		ret = gh_scm_assign_mem(phys, size, &dstvmid, srcVM, src_vmids_count);
 		if (ret)
-			pr_err("failed qcom_assign for %pa address of size %zx - subsys VMid %d rc:%d\n",
-					&phys, size, srcVM[0].vmid, ret);
+			pr_err("gh_scm_assign_mem failed, ret:%d\n", ret);
 	}
 
 err_assign_mem:

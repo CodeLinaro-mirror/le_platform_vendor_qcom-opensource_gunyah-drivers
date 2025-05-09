@@ -1394,6 +1394,7 @@ int gh_virtio_mmio_exit(gh_vmid_t vmid, const char *vm_name)
 	spin_lock(&vm->vb_dev_lock);
 	list_for_each_entry(vb_dev, &vm->vb_dev_list, list) {
 		spin_unlock(&vm->vb_dev_lock);
+		spin_lock_irq(&vb_dev->lock);
 		if (vb_dev->irq.ctx) {
 			eventfd_ctx_remove_wait_queue(vb_dev->irq.ctx, &(vb_dev->irq.wait), &cnt);
 			eventfd_ctx_put(vb_dev->irq.ctx);
@@ -1403,6 +1404,7 @@ int gh_virtio_mmio_exit(gh_vmid_t vmid, const char *vm_name)
 			}
 			vb_dev->irq.ctx = NULL;
 		}
+		spin_unlock_irq(&vb_dev->lock);
 		for (i = 0; i < MAX_IO_CONTEXTS; ++i) {
 			if (vb_dev->ioctx[i].ctx) {
 				eventfd_ctx_put(vb_dev->ioctx[i].ctx);

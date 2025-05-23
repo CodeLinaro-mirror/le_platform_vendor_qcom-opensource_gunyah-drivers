@@ -636,6 +636,42 @@ out:
 	return resp_entries;
 }
 
+struct gh_code_cov_resp_payload *
+gh_rm_vm_get_code_cov(gh_vmid_t vmid, u16 log_type)
+{
+	struct gh_code_cov_resp_payload *resp_payload, *resp_copy;
+	struct gh_vm_get_hyp_res_req_payload req_payload = {
+		.vmid = vmid,
+		.reserved = log_type,
+	};
+	size_t resp_payload_size;
+	int err, reply_err_code;
+	char *payload_buf;
+
+	resp_payload = gh_rm_call(GH_RM_RPC_MSG_ID_CALL_VM_GET_CODE_COV,
+				&req_payload, sizeof(req_payload),
+				&resp_payload_size, &reply_err_code);
+	if (reply_err_code || IS_ERR_OR_NULL(resp_payload)) {
+		err = PTR_ERR(resp_payload);
+		pr_err("%s: GET_CODE_COV failed with err: %d\n",
+			__func__, err);
+		return ERR_PTR(err);
+	}
+
+	pr_debug("%s: size received %u, resp_sz %u\n",
+		__func__, resp_payload_size, resp_payload->sz);
+	resp_copy = kmemdup(resp_payload, resp_payload_size, GFP_KERNEL);
+	if (!resp_copy) {
+		resp_copy = ERR_PTR(-ENOMEM);
+		goto out;
+	}
+	payload_buf = resp_copy->buff;
+out:
+	kfree(resp_payload);
+	return resp_copy;
+}
+EXPORT_SYMBOL(gh_rm_vm_get_code_cov);
+
 /**
  * gh_rm_vm_irq_notify: Notify an IRQ to another VM
  * @vmids: VMs to notify the handle about

@@ -671,11 +671,13 @@ int gh_reclaim_mem(struct gh_vm *vm, struct gh_mem_parcel *mem_parcels,
 {
 	int vmid = vm->vmid;
 	struct qcom_scm_vmperm destVM[1] = {{QCOM_SCM_VMID_HLOS, QCOM_SCM_PERM_RWX}};
-	u64 srcvmid = BIT(QCOM_SCM_VMID_HLOS) | BIT(vmid);
+	u64 srcvmid[2] = {0};
 	phys_addr_t phys;
 	ssize_t size;
 	int i;
 	int ret = 0;
+
+	qcom_scm_set_vmid_by_word(&srcvmid[0], vmid);
 
 	if (!is_system_vm) {
 		ret = gh_rm_mem_reclaim(vm->mem_handle, 0);
@@ -688,13 +690,15 @@ int gh_reclaim_mem(struct gh_vm *vm, struct gh_mem_parcel *mem_parcels,
 	for (i = 0; i < mem_parcel_count; i++) {
 		phys = mem_parcels[i].mem_phys;
 		size = mem_parcels[i].mem_size;
-		ret = gh_scm_assign_mem(phys, size, &srcvmid, destVM, ARRAY_SIZE(destVM));
+		ret = gh_scm_assign_mem(phys, size, &srcvmid[0], destVM, ARRAY_SIZE(destVM));
 		if (ret) {
 			pr_err("gh_scm_assign_mem failed, ret: %d\n", ret);
 			return ret;
 		}
 
-		srcvmid = BIT(QCOM_SCM_VMID_HLOS) | BIT(vmid);
+		srcvmid[0] = BIT(QCOM_SCM_VMID_HLOS);
+		qcom_scm_set_vmid_by_word(&srcvmid[0], vmid);
+
 	}
 
 	return ret;
@@ -705,7 +709,7 @@ static void set_vmperm_bit(struct qcom_scm_vmperm *vmperm, u64 *bit_vmid,
 {
 	vmperm->vmid = vmid;
 	vmperm->perm = perm;
-	*bit_vmid |= BIT(vmid);
+	qcom_scm_set_vmid_by_word(bit_vmid, vmid);
 }
 
 int gh_reclaim_shmem(struct gh_vm *vm, struct gh_shmem *shmems)
@@ -720,8 +724,8 @@ int gh_reclaim_shmem(struct gh_vm *vm, struct gh_shmem *shmems)
 	gh_memparcel_handle_t *shmem_handle;
 	u8 *ref_count;
 	spinlock_t *slock;
-	u64 srcvmid = 0;
-	u64 dstvmid = 0;
+	u64 srcvmid[2] = {0};
+	u64 dstvmid[2] = {0};
 
 	dst_vmids_count += shmems->src_vmids_count;
 
@@ -731,24 +735,23 @@ int gh_reclaim_shmem(struct gh_vm *vm, struct gh_shmem *shmems)
 		return -ENOMEM;
 
 	for (i = 0; i < shmems->src_vmids_count; i++)
-		set_vmperm_bit(&dstVM[i], &dstvmid, shmems->src_vmids[i], shmems->src_perms[i]);
+		set_vmperm_bit(&dstVM[i], &dstvmid[0], shmems->src_vmids[i], shmems->src_perms[i]);
 
-	set_vmperm_bit(&dstVM[i], &dstvmid, QCOM_SCM_VMID_HLOS, QCOM_SCM_PERM_RWX);
+	set_vmperm_bit(&dstVM[i], &dstvmid[0], QCOM_SCM_VMID_HLOS, QCOM_SCM_PERM_RWX);
 
 	for (i = 0; i < shmems->dst_vmids_count; i++)
-		srcvmid |= BIT(shmems->dst_vmids[i]);
-
-	srcvmid |= BIT(vmid);
+		qcom_scm_set_vmid_by_word(&srcvmid[0], shmems->dst_vmids[i]);
+	qcom_scm_set_vmid_by_word(&srcvmid[0], vmid);
 
 	if (shmems->is_shared)
-		srcvmid |= BIT(QCOM_SCM_VMID_HLOS);
+		srcvmid[0] |= BIT(QCOM_SCM_VMID_HLOS);
 
 	if (!shmems->is_iomem) {
 		ret = gh_rm_mem_reclaim(shmems->shmem_handle, 0);
 		if (ret)
 			pr_err("Failed to reclaim memory for %d, %d\n",
 						vm->vmid, ret);
-		ret = gh_scm_assign_mem(phys, size, &srcvmid, dstVM, dst_vmids_count);
+		ret = gh_scm_assign_mem(phys, size, &srcvmid[0], dstVM, dst_vmids_count);
 		if (ret)
 			pr_err("gh_scm_assign_mem failed, ret: %d\n", ret);
 	} else {
@@ -775,12 +778,16 @@ int gh_provide_mem(struct gh_vm *vm, struct gh_mem_parcel *mem_parcels,
 	struct qcom_scm_vmperm srcVM[1] = {{QCOM_SCM_VMID_HLOS, QCOM_SCM_PERM_RWX}};
 	struct qcom_scm_vmperm destVM[2] = {{QCOM_SCM_VMID_HLOS, QCOM_SCM_PERM_RWX},
 						{vmid, QCOM_SCM_PERM_RWX}};
-	u64 srcvmid = BIT(srcVM[0].vmid);
-	u64 dstvmid = BIT(destVM[0].vmid) | BIT(destVM[1].vmid);
+	u64 srcvmid[2] = {0};
+	u64 dstvmid[2] = {0};
 	phys_addr_t phys;
 	ssize_t size;
 	int i;
 	int ret = 0;
+
+	qcom_scm_set_vmid_by_word(&srcvmid[0], srcVM[0].vmid);
+	qcom_scm_set_vmid_by_word(&dstvmid[0], destVM[0].vmid);
+	qcom_scm_set_vmid_by_word(&dstvmid[0], destVM[1].vmid);
 
 	acl_desc = kzalloc(offsetof(struct gh_acl_desc, acl_entries[2]),
 			GFP_KERNEL);
@@ -811,13 +818,13 @@ int gh_provide_mem(struct gh_vm *vm, struct gh_mem_parcel *mem_parcels,
 		sgl_desc->sgl_entries[i].ipa_base = phys;
 		sgl_desc->sgl_entries[i].size = size;
 
-		ret = gh_scm_assign_mem(phys, size, &srcvmid, destVM, ARRAY_SIZE(destVM));
+		ret = gh_scm_assign_mem(phys, size, &srcvmid[0], destVM, ARRAY_SIZE(destVM));
 		if (ret) {
 			pr_err("gh_scm_assign_mem failed, ret: %d\n", ret);
 			goto err_assign_mem;
 		}
 
-		srcvmid = BIT(srcVM[0].vmid);
+		qcom_scm_set_vmid_by_word(&srcvmid[0], srcVM[0].vmid);
 	}
 
 	/*
@@ -838,11 +845,12 @@ int gh_provide_mem(struct gh_vm *vm, struct gh_mem_parcel *mem_parcels,
 		for(i = 0; i < mem_parcel_count; i++) {
 			phys = mem_parcels[i].mem_phys;
 			size = mem_parcels[i].mem_size;
-			ret = gh_scm_assign_mem(phys, size, &dstvmid, srcVM, ARRAY_SIZE(srcVM));
+			ret = gh_scm_assign_mem(phys, size, &dstvmid[0], srcVM, ARRAY_SIZE(srcVM));
 			if (ret)
 				pr_err("gh_scm_assign_mem failed, ret: %d\n", ret);
 
-			dstvmid = BIT(destVM[0].vmid) | BIT(destVM[1].vmid);
+			qcom_scm_set_vmid_by_word(&dstvmid[0], destVM[0].vmid);
+			qcom_scm_set_vmid_by_word(&dstvmid[0], destVM[1].vmid);
 		}
 
 err_assign_mem:
@@ -864,8 +872,8 @@ int gh_provide_shmem(struct gh_vm *vm, struct gh_shmem *shmems)
 	struct qcom_scm_vmperm *dstVM;
 	phys_addr_t phys = shmems->base;
 	ssize_t size = shmems->size;
-	u64 srcvmid = 0;
-	u64 dstvmid = 0;
+	u64 srcvmid[2] = {0};
+	u64 dstvmid[2] = {0};
 
 	src_vmids_count += shmems->src_vmids_count;
 	if (shmems->is_iomem)
@@ -877,9 +885,9 @@ int gh_provide_shmem(struct gh_vm *vm, struct gh_shmem *shmems)
 		return -ENOMEM;
 
 	for (i = 0; i < shmems->src_vmids_count; i++)
-		set_vmperm_bit(&srcVM[i], &srcvmid, shmems->src_vmids[i], shmems->src_perms[i]);
+		set_vmperm_bit(&srcVM[i], &srcvmid[0], shmems->src_vmids[i], shmems->src_perms[i]);
 
-	set_vmperm_bit(&srcVM[i], &srcvmid, QCOM_SCM_VMID_HLOS, QCOM_SCM_PERM_RWX);
+	set_vmperm_bit(&srcVM[i], &srcvmid[0], QCOM_SCM_VMID_HLOS, QCOM_SCM_PERM_RWX);
 
 	if (shmems->is_shared) {
 		dst_vmids_count = shmems->dst_vmids_count + 2;
@@ -891,10 +899,10 @@ int gh_provide_shmem(struct gh_vm *vm, struct gh_shmem *shmems)
 		}
 
 		for (i = 0; i < shmems->dst_vmids_count; i++)
-			set_vmperm_bit(&dstVM[i], &dstvmid, shmems->dst_vmids[i], shmems->dst_perms[i]);
+			set_vmperm_bit(&dstVM[i], &dstvmid[0], shmems->dst_vmids[i], shmems->dst_perms[i]);
 
-		set_vmperm_bit(&dstVM[i], &dstvmid, QCOM_SCM_VMID_HLOS, QCOM_SCM_PERM_RWX);
-		set_vmperm_bit(&dstVM[++i], &dstvmid, vmid, QCOM_SCM_PERM_RWX);
+		set_vmperm_bit(&dstVM[i], &dstvmid[0], QCOM_SCM_VMID_HLOS, QCOM_SCM_PERM_RWX);
+		set_vmperm_bit(&dstVM[++i], &dstvmid[0], vmid, QCOM_SCM_PERM_RWX);
 	} else {
 		dst_vmids_count += shmems->dst_vmids_count;
 		dstVM = kzalloc(dst_vmids_count * sizeof(struct qcom_scm_vmperm),
@@ -905,9 +913,9 @@ int gh_provide_shmem(struct gh_vm *vm, struct gh_shmem *shmems)
 		}
 
 		for (i = 0; i < shmems->dst_vmids_count; i++)
-			set_vmperm_bit(&dstVM[i], &dstvmid, shmems->dst_vmids[i], shmems->dst_perms[i]);
+			set_vmperm_bit(&dstVM[i], &dstvmid[0], shmems->dst_vmids[i], shmems->dst_perms[i]);
 
-		set_vmperm_bit(&dstVM[i], &dstvmid, vmid, QCOM_SCM_PERM_RWX);
+		set_vmperm_bit(&dstVM[i], &dstvmid[0], vmid, QCOM_SCM_PERM_RWX);
 	}
 
 	acl_desc = kzalloc(offsetof(struct gh_acl_desc, acl_entries[dst_vmids_count]),
@@ -938,7 +946,7 @@ int gh_provide_shmem(struct gh_vm *vm, struct gh_shmem *shmems)
 	sgl_desc->sgl_entries[0].ipa_base = phys;
 	sgl_desc->sgl_entries[0].size = size;
 
-	ret = gh_scm_assign_mem(phys, size, &srcvmid, dstVM, dst_vmids_count);
+	ret = gh_scm_assign_mem(phys, size, &srcvmid[0], dstVM, dst_vmids_count);
 	if (ret) {
 		pr_err("gh_scm_assign_mem failed, ret: %d\n", ret);
 		goto err_assign_mem;
@@ -952,7 +960,7 @@ int gh_provide_shmem(struct gh_vm *vm, struct gh_shmem *shmems)
 								         sgl_desc, NULL, &shmems->shmem_handle);
 	}
 	if (ret) {
-		ret = gh_scm_assign_mem(phys, size, &dstvmid, srcVM, src_vmids_count);
+		ret = gh_scm_assign_mem(phys, size, &dstvmid[0], srcVM, src_vmids_count);
 		if (ret)
 			pr_err("gh_scm_assign_mem failed, ret:%d\n", ret);
 	}

@@ -1147,7 +1147,9 @@ static int
 unshare_a_vm_buffer(gh_vmid_t self, gh_vmid_t peer, struct resource *r,
 		    struct shared_memory *shmem)
 {
-	u64 srcVM = BIT(self) | BIT(peer);
+	u64 srcVM[2] = {0};
+	qcom_scm_set_vmid_by_word(&srcVM[0], self);
+	qcom_scm_set_vmid_by_word(&srcVM[0], peer);
 	struct qcom_scm_vmperm dst_perms[1] = {{self, QCOM_SCM_PERM_RWX}};
 
 	int ret;
@@ -1160,7 +1162,7 @@ unshare_a_vm_buffer(gh_vmid_t self, gh_vmid_t peer, struct resource *r,
 		return ret;
 	}
 
-	ret = gh_scm_assign_mem(r->start, resource_size(r), &srcVM, dst_perms, ARRAY_SIZE(dst_perms));
+	ret = gh_scm_assign_mem(r->start, resource_size(r), &srcVM[0], dst_perms, ARRAY_SIZE(dst_perms));
 	if (ret)
 		pr_err("%s: gh_scm_assign_mem failed for addr=%llx size=%lld err=%d\n",
 			VIRTIO_PRINT_MARKER, r->start, resource_size(r), ret);
@@ -1194,8 +1196,11 @@ static int share_a_vm_buffer(gh_vmid_t self, gh_vmid_t peer, int gunyah_label,
 				struct resource *r, u32 *shm_memparcel,
 				struct shared_memory *shmem)
 {
-	u64 srcVM = BIT(self);
-	u64 dstVM = BIT(self) | BIT(peer);
+	u64 srcVM[2] = {0};
+	u64 dstVM[2] = {0};
+	qcom_scm_set_vmid_by_word(&srcVM[0], self);
+	qcom_scm_set_vmid_by_word(&dstVM[0], self);
+	qcom_scm_set_vmid_by_word(&dstVM[0], peer);
 	struct qcom_scm_vmperm src_perms[1] = {{self, QCOM_SCM_PERM_RWX}};
 	struct qcom_scm_vmperm dst_perms[2] = {{self, QCOM_SCM_PERM_RW},
 						{peer, QCOM_SCM_PERM_RW}};
@@ -1211,7 +1216,7 @@ static int share_a_vm_buffer(gh_vmid_t self, gh_vmid_t peer, int gunyah_label,
 		kfree(acl);
 		return -ENOMEM;
 	}
-	ret = gh_scm_assign_mem(r->start, resource_size(r), &srcVM, dst_perms, ARRAY_SIZE(dst_perms));
+	ret = gh_scm_assign_mem(r->start, resource_size(r), &srcVM[0], dst_perms, ARRAY_SIZE(dst_perms));
 
 	if (ret) {
 		pr_err("%s: gh_scm_assign_mem failed for addr=%llx size=%lld err=%d\n",
@@ -1236,7 +1241,7 @@ static int share_a_vm_buffer(gh_vmid_t self, gh_vmid_t peer, int gunyah_label,
 	if (ret) {
 		pr_err("%s: Sharing memory failed %d\n", VIRTIO_PRINT_MARKER, ret);
 		/* Attempt to assign resource back to HLOS */
-		gh_scm_assign_mem(r->start, resource_size(r), &dstVM, src_perms, ARRAY_SIZE(src_perms));
+		gh_scm_assign_mem(r->start, resource_size(r), &dstVM[0], src_perms, ARRAY_SIZE(src_perms));
 	}
 
 	kfree(acl);

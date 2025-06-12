@@ -26,6 +26,8 @@
 #include "gvm_dump_debugfs.h"
 
 #define MAX_VCPU_NAME		20 /* gh-vcpu:u32_max +1 */
+#define MAX_VMID			128
+
 
 SRCU_NOTIFIER_HEAD_STATIC(gh_vm_notifier);
 static DEFINE_SPINLOCK(vm_list_lock);
@@ -631,19 +633,17 @@ bool gh_is_scm_assign_mem_required(u64 *src, const struct qcom_scm_vmperm *newvm
 				   unsigned int dest_cnt)
 {
 	int ret, i;
-
 	for (i = 0; i < dest_cnt; i++)
 		if (!is_gh_vm_or_hlos(newvm[i].vmid))
 			return true;
-
-	for (i = 0; i < BITS_PER_TYPE(*src); i++) {
-		if (!(*src & BIT(i)))
+	for (i = 0; i < MAX_VMID; i++) {
+		if (!(src[i / 64] & BIT(i % 64)))
 			continue;
 		if (!is_gh_vm_or_hlos(i))
 			return true;
 	}
 
-	if (hweight64(*src) == 1 && (*src & BIT(QCOM_SCM_VMID_HLOS)) &&
+	if (hweight64(src[0]) == 1 && hweight64(src[1]) == 0 && (*src & BIT(QCOM_SCM_VMID_HLOS)) &&
 		(dest_cnt == 1) && (newvm[0].vmid == QCOM_SCM_VMID_HLOS))
 		return true;
 

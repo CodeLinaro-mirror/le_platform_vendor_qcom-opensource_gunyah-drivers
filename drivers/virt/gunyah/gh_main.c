@@ -31,7 +31,9 @@ SRCU_NOTIFIER_HEAD_STATIC(gh_vm_notifier);
 static DEFINE_SPINLOCK(vm_list_lock);
 static LIST_HEAD(vm_list);
 
-static struct gh_shiomem_info shiomem_info;
+static struct gh_shiomem_info shiomem_info = {
+	.slock = __SPIN_LOCK_UNLOCKED(shiomem_info.slock),
+};
 
 /*
  * Support for RM calls and the wait for change of status
@@ -521,7 +523,8 @@ int gh_share_iomem(struct gh_vm *vm, struct gh_shmem *shmems)
 	phys_addr_t phys = shmems->base;
 	ssize_t size = shmems->size;
 	gh_memparcel_handle_t *shmem_handle;
-	refcount_t *ref_count;
+	u8 *ref_count;
+	spinlock_t *slock;
 
 	if (shmems->gunyah_label < GH_SHIOMEM_LABEL_BASE ||
 		shmems->gunyah_label > GH_SHIOMEM_LABEL_BASE + MAX_SHARED_IOMEM) {
@@ -532,18 +535,24 @@ int gh_share_iomem(struct gh_vm *vm, struct gh_shmem *shmems)
 
 	ref_count = &shiomem_info.ref_counts[shmems->gunyah_label - GH_SHIOMEM_LABEL_BASE];
 	shmem_handle = &shiomem_info.shmem_handles[shmems->gunyah_label - GH_SHIOMEM_LABEL_BASE];
+	slock = &shiomem_info.slock;
 
-	if (refcount_read(ref_count) != 0) {
-		refcount_inc(ref_count);
+	spin_lock(slock);
+	(*ref_count)++;
+	if (*ref_count != 1) {
+		spin_unlock(slock);
 		return 0;
 	}
-	refcount_set(ref_count, 1);
+	spin_unlock(slock);
+
 	dst_vmids_count += shmems->dst_vmids_count + 1; /* 1 for HLOS */
 	acl_desc = kzalloc(offsetof(struct gh_acl_desc,
 			   acl_entries[dst_vmids_count]),
 			   GFP_KERNEL);
 	if (!acl_desc) {
-		refcount_dec(ref_count);
+		spin_lock(slock);
+		(*ref_count)--;
+		spin_unlock(slock);
 		return -ENOMEM;
 	}
 
@@ -561,7 +570,9 @@ int gh_share_iomem(struct gh_vm *vm, struct gh_shmem *shmems)
 
 	if(!sgl_desc){
 		kfree(acl_desc);
-		refcount_dec(ref_count);
+		spin_lock(slock);
+		(*ref_count)--;
+		spin_unlock(slock);
 		return -ENOMEM;
 	}
 
@@ -573,7 +584,9 @@ int gh_share_iomem(struct gh_vm *vm, struct gh_shmem *shmems)
 			 acl_desc, sgl_desc, NULL, &shmems->shmem_handle);
 	*shmem_handle = shmems->shmem_handle;
 	if (ret){
-		refcount_dec(ref_count);
+		spin_lock(slock);
+		(*ref_count)--;
+		spin_unlock(slock);
 		pr_err("Failed to share IO memory for vmid:%d, label:%d rc:%d\n",
                                         vm->vmid, shmems->gunyah_label, ret);
 	}
@@ -705,7 +718,8 @@ int gh_reclaim_shmem(struct gh_vm *vm, struct gh_shmem *shmems)
 	phys_addr_t phys = shmems->base;
 	ssize_t size = shmems->size;
 	gh_memparcel_handle_t *shmem_handle;
-	refcount_t *ref_count;
+	u8 *ref_count;
+	spinlock_t *slock;
 	u64 srcvmid = 0;
 	u64 dstvmid = 0;
 
@@ -740,10 +754,13 @@ int gh_reclaim_shmem(struct gh_vm *vm, struct gh_shmem *shmems)
 	} else {
 		shmem_handle = &shiomem_info.shmem_handles[shmems->gunyah_label - GH_SHIOMEM_LABEL_BASE];
 		ref_count = &shiomem_info.ref_counts[shmems->gunyah_label - GH_SHIOMEM_LABEL_BASE];
-		if (refcount_dec_and_test(ref_count)) {
+		slock = &shiomem_info.slock;
+		spin_lock(slock);
+		if (--(*ref_count) == 0) {
 			ret = gh_rm_mem_reclaim(*shmem_handle, 0);
 			*shmem_handle = 0;
 		}
+		spin_unlock(slock);
 	}
 
 	return ret;

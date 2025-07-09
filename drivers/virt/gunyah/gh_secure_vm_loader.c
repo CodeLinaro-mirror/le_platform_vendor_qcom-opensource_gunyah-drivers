@@ -140,6 +140,12 @@ static u64 gh_sec_load_metadata(struct gh_sec_vm_dev *vm_dev,
 			image_end_addr = phdr->p_paddr + phdr->p_memsz;
 			max_paddr = phdr->p_paddr;
 		}
+
+		if (image_size > U64_MAX - phdr->p_memsz) {
+			dev_err(dev, "Overflow detected while accumulating image size \"%s\"\n",
+				vm_dev->vm_name);
+			return 0;
+		}
 		image_size += phdr->p_memsz;
 	}
 
@@ -217,8 +223,10 @@ static int gh_vm_loader_sec_load(struct gh_sec_vm_dev *vm_dev,
 	}
 
 	mem_parcels = devm_kcalloc(dev, vm_dev->fw_mem_count, sizeof(*mem_parcels), GFP_KERNEL);
-	if (!mem_parcels)
-		return -ENOMEM;
+	if (!mem_parcels) {
+		ret = -ENOMEM;
+		goto release_fw;
+	}
 
 	for (i = 0; i < vm_dev->fw_mem_count; i++) {
 		mem_parcels[i].mem_phys = vm_dev->fw_mem_regions[i].fw_phys;
@@ -239,18 +247,29 @@ static int gh_vm_loader_sec_load(struct gh_sec_vm_dev *vm_dev,
 	ret = gh_vm_configure(GH_VM_AUTH_PIL_ELF, metadata_offset,
 				metadata_size, 0, 0, vm_dev->pas_id,
 				vm_dev->vm_name, vm);
-	if (ret)
+	if (ret) {
 		dev_err(dev, "Configuring secure VM %s to memory failed %ld\n",
 					vm_dev->vm_name, ret);
+		goto release_mem;
+	}
 
 	for (i = 0; i < vm_dev->sh_mem_count; i++) {
 		ret = gh_provide_shmem(vm, &vm_dev->sh_mem_regions[i]);
 		if (ret) {
 			dev_err(dev, "Failed to provide shared memory for %s, %d\n",
 					vm_dev->vm_name, ret);
-			goto release_fw;
+			goto release_mem;
 		}
 	}
+
+	goto release_fw;
+
+release_mem:
+	ret = gh_reclaim_mem(vm, mem_parcels, vm_dev->fw_mem_count,
+					vm_dev->system_vm);
+	if (ret)
+		pr_warn("Failed to reclaim system memory for vmid: %d ret: %d\n",
+				vm->vmid, ret);
 
 release_fw:
 	kfree(metadata);
@@ -723,10 +742,12 @@ static int gh_vm_shared_mem_probe(struct gh_sec_vm_dev *sec_vm_dev)
 			count = of_property_count_elems_of_size(node, "qcom,dst-vmids", sizeof(u32));
 			if (!count) {
 				dev_err(dev, "No qcom,dst-vmids are specified\n");
-				return -EINVAL;
+				ret = -EINVAL;
+				goto err_of_node_put;
 			} else if (count > GH_MAX_VMIDS) {
 				dev_err(dev, "The number of \"qcom,dst-vmids\" exceed limitation\n");
-				return -EINVAL;
+				ret = -EINVAL;
+				goto err_of_node_put;
 			}
 
 			sec_vm_dev->sh_mem_regions[i].dst_vmids_count = count;
@@ -749,10 +770,12 @@ static int gh_vm_shared_mem_probe(struct gh_sec_vm_dev *sec_vm_dev)
 			count = of_property_count_elems_of_size(node, "qcom,src-vmids", sizeof(u32));
 			if (!count) {
 				dev_err(dev, "No qcom,src-vmids are specified\n");
-				return -EINVAL;
+				ret = -EINVAL;
+				goto err_of_node_put;
 			} else if (count > GH_MAX_VMIDS) {
 				dev_err(dev, "The number of \"qcom,src-vmids\" exceed limitation\n");
-				return -EINVAL;
+				ret = -EINVAL;
+				goto err_of_node_put;
 			}
 
 			sec_vm_dev->sh_mem_regions[i].src_vmids_count = count;
@@ -849,7 +872,7 @@ static int gh_secure_vm_loader_probe(struct platform_device *pdev)
 
 	ret = gh_vm_shared_mem_probe(sec_vm_dev);
 	if (ret)
-		return ret;
+		goto err_unmap_fw;
 
 	ret = of_property_read_string(pdev->dev.of_node, "qcom,firmware-name",
 				      &sec_vm_dev->vm_name);

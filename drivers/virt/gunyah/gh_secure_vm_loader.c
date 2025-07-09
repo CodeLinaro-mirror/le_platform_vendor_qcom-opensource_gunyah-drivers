@@ -345,16 +345,14 @@ long gh_vm_ioctl_set_fw_name(struct gh_vm *vm, unsigned long arg)
 	dev = sec_vm_dev->dev;
 
 	cleanup_gvm_ramdump_ctx(sec_vm_dev->vmid);
-
+	scnprintf(vm->fw_name, ARRAY_SIZE(vm->fw_name),
+						"%s", vm_fw_name.name);
 	ret = gh_sec_vm_loader_load_fw(sec_vm_dev, vm);
 	if (ret) {
 		dev_err(dev, "Loading secure VM %s to memory failed %ld\n",
 					sec_vm_dev->vm_name, ret);
 		goto err_fw_name;
 	}
-
-	scnprintf(vm->fw_name, ARRAY_SIZE(vm->fw_name),
-						"%s", vm_fw_name.name);
 
 	mutex_unlock(&vm->vm_lock);
 	gh_uevent_notify_change(GH_EVENT_CREATE_VM, vm);

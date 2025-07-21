@@ -82,8 +82,9 @@ struct gh_shmem {
  * Reserve 8 variates, the corresponding gunyah labels are from 0x7E to 0x85.
 */
 struct gh_shiomem_info {
-	refcount_t ref_counts[MAX_SHARED_IOMEM];
+	u8 ref_counts[MAX_SHARED_IOMEM];
 	gh_memparcel_handle_t shmem_handles[MAX_SHARED_IOMEM];
+	spinlock_t slock;
 };
 
 /*

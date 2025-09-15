@@ -1356,6 +1356,7 @@ static int set_vm_vpm_grp_info(gh_vmid_t vmid, gh_capid_t cap_id, int virq_num)
 		snprintf(vm->susp_irq_name, sizeof(vm->susp_irq_name), "vm%d_susp_irq", vmid);
 	} else {
 		pr_err("%s: cannot find vm %d\n", __func__, vmid);
+		ret = -ENODEV;
 		return ret;
 	}
 
@@ -1404,7 +1405,7 @@ static int __init gh_init(void)
 	ret = gh_rm_reset_vpm_grp_cb(&reset_vm_vpm_grp_info);
 	if (ret) {
 		pr_err("gunyah: rm reset vpm callback failed\n");
-		return ret;
+		goto err_gh_init;
 	}
 
 	ret = misc_register(&gh_dev);

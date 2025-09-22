@@ -29,29 +29,9 @@
 #include "gh_private.h"
 #include "gh_secure_vm_virtio_backend.h"
 #include "gvm_dump_debugfs.h"
+#include "gh_device_lend.h"
 
 #define PAGE_ROUND_UP(x) ((((u64)(x) + (PAGE_SIZE - 1)) / PAGE_SIZE)  * PAGE_SIZE)
-
-struct gh_sec_vm_fw_mem {
-	phys_addr_t fw_phys;
-	void *fw_virt;
-	ssize_t fw_size;
-	bool is_static;
-};
-
-struct gh_sec_vm_dev {
-	struct list_head list;
-	const char *vm_name;
-	struct device *dev;
-	bool system_vm;
-	struct gh_sec_vm_fw_mem *fw_mem_regions;
-	unsigned int fw_mem_count;
-	int pas_id;
-	int vmid;
-	unsigned int fw_index;
-	struct gh_shmem *sh_mem_regions;
-	unsigned int sh_mem_count;
-};
 
 const static struct {
 	enum gh_vm_names val;
@@ -262,7 +242,26 @@ static int gh_vm_loader_sec_load(struct gh_sec_vm_dev *vm_dev,
 		}
 	}
 
+	for (i = 0; i < vm_dev->sh_dev_count; i++) {
+
+		ret = device_lend(vm, &vm_dev->sh_dev[i]);
+		if (ret) {
+			dev_err(dev, "Failed to lend device %s, %d\n",
+					vm_dev->vm_name, ret);
+			goto release_shmem;
+		}
+	}
+
 	goto release_fw;
+
+release_shmem:
+	for (i = 0; i < vm_dev->sh_mem_count; i++) {
+		ret = gh_reclaim_shmem (vm, &vm_dev->sh_mem_regions[i]);
+		if (ret) {
+			dev_err(dev, "Failed to reclaim shared memory for %s, %d\n",
+					vm_dev->vm_name, ret);
+		}
+	}
 
 release_mem:
 	ret = gh_reclaim_mem(vm, mem_parcels, vm_dev->fw_mem_count,
@@ -270,6 +269,7 @@ release_mem:
 	if (ret)
 		pr_warn("Failed to reclaim system memory for vmid: %d ret: %d\n",
 				vm->vmid, ret);
+
 
 release_fw:
 	kfree(metadata);
@@ -588,6 +588,13 @@ int gh_secure_vm_loader_reclaim_fw(struct gh_vm *vm)
 
 	dev = sec_vm_dev->dev;
 
+	for (i = 0; i < sec_vm_dev->sh_dev_count; i ++) {
+		ret = device_reclaim(&sec_vm_dev->sh_dev[i]);
+		if (ret) {
+			pr_err("Failed to reclaim device from VM: %d\n", vm->vmid);
+		}
+	}
+
 	for (i = 0; i < sec_vm_dev->sh_mem_count; i ++) {
 		ret = gh_reclaim_shmem(vm, &sec_vm_dev->sh_mem_regions[i]);
 	}
@@ -871,6 +878,9 @@ static int gh_secure_vm_loader_probe(struct platform_device *pdev)
 		return ret;
 
 	ret = gh_vm_shared_mem_probe(sec_vm_dev);
+	if (ret)
+		goto err_unmap_fw;
+	ret = gh_vm_shared_device_probe(sec_vm_dev);
 	if (ret)
 		goto err_unmap_fw;
 

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2020-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  *
  */
 
@@ -79,6 +79,7 @@ const static struct {
 	{GH_OEM_VM, "oem_vm", "qcom,oemvm"},
 	{GH_AUTO_VM, "autoghgvm", "qcom,autoghgvm"},
 	{GH_AUTO_VM_LV, "autoghgvmlv", "qcom,autoghgvmlv"},
+	{GH_GEAR_VM, "gearvm", "qcom,gearvm"},
 };
 
 static struct task_struct *gh_rm_drv_recv_task;
@@ -1515,6 +1516,13 @@ static int gh_vm_probe(struct device *dev, struct device_node *hyp_root)
 		gh_rm_core_initialized = true;
 		/* Query RM for available resources */
 		schedule_work(&gh_rm_get_svm_res_work);
+	}
+
+	/* Set GearVM VMID */
+	temp_property.vmid = 16;
+	ret = gh_update_vm_prop_table(GH_GEAR_VM, &temp_property);
+	if(ret) {
+		pr_err("%s: Failed setting GearVM VMID err: %d\n",__func__, ret);
 	}
 
 	return 0;

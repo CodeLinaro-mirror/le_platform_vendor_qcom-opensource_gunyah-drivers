@@ -1234,6 +1234,33 @@ err_put_vm:
 	return ret;
 }
 
+static long gh_dev_ioctl_get_vm_state(unsigned long arg)
+{
+	struct gh_vm *vm;
+	struct gh_fw_name_and_curr_state vm_name_and_state;
+	int ret = 0;
+
+	if (copy_from_user(&vm_name_and_state, (void __user *)arg,
+				sizeof(vm_name_and_state)))
+		return -EFAULT;
+
+	vm = find_and_get_vm_by_name(vm_name_and_state.name);
+	if (!vm)
+		return -EINVAL;
+
+	vm_name_and_state.curr_vm_state = vm->vm_suspend_type;
+
+	if (copy_to_user((void __user *)arg, &vm_name_and_state,
+				sizeof(vm_name_and_state))) {
+		ret = -EFAULT;
+		goto err_put_vm;
+	}
+
+err_put_vm:
+	gh_put_vm(vm);
+	return ret;
+}
+
 static long gh_dev_ioctl(struct file *filp,
 				unsigned int cmd, unsigned long arg)
 {
@@ -1245,6 +1272,9 @@ static long gh_dev_ioctl(struct file *filp,
 		break;
 	case GH_VM_WAIT_FOR_EXIT:
 		ret = gh_dev_ioctl_wait_for_exit(arg);
+		break;
+	case GH_VM_GET_VM_STATE:
+		ret = gh_dev_ioctl_get_vm_state(arg);
 		break;
 	default:
 		pr_err("Invalid gunyah dev ioctl 0x%lx\n", cmd);
@@ -1317,12 +1347,12 @@ static irqreturn_t gh_susp_irq_handler(int irq, void *data)
 
 	if (vpmg_state == VM_STATE_RUNNING) {
 		if (vm->vm_suspend_type == VM_STATE_CREATED) {
-			vm->vm_suspend_type = VM_STATE_RUNNING;
 			pr_debug("VM:%d is in running state\n", vm->vmid);
 		} else {
 			pr_debug("VM:%d resumed and is running\n", vm->vmid);
 			gh_uevent_notify_change(GH_EVENT_VM_RESUMED, vm);
 		}
+		vm->vm_suspend_type = VM_STATE_RUNNING;
 	}
 	else if (vpmg_state == VM_STATE_CPU_SUSPENDED ||
 		 vpmg_state == VM_STATE_SYSTEM_SUSPENDED) {

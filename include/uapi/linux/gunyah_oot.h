@@ -38,6 +38,11 @@ struct gh_fw_name_and_exit_status {
 	__u32 reason;
 };
 
+struct gh_fw_name_and_curr_state {
+	char name[GH_VM_FW_NAME_MAX];
+	__u32 curr_vm_state;
+};
+
 #define VBE_ASSIGN_IOEVENTFD	1
 #define VBE_DEASSIGN_IOEVENTFD	2
 
@@ -163,6 +168,19 @@ struct gh_fw_name_and_exit_status {
  */
 #define GH_VM_GET_MEM_REGION		_IOWR(GH_IOCTL_TYPE, 0x45, \
 						struct vm_mem_region)
+/**
+ * GH_VM_GET_VM_STATE - Userspace can use this IOCTL to query information
+ * 			for current VM State whether it is running or suspended.
+ *            		Userspace can further use this information
+ *            		to suspend VM if it is only in running state.
+ *
+ * Input: gh_fw_name_and_curr_state structure to be filled with VM name
+ *        and curr_vm_state is filled with current VM state.
+ *
+ * Return: 0 if success, -errno on failure
+ */
+#define GH_VM_GET_VM_STATE		_IOWR(GH_IOCTL_TYPE, 0x46, \
+						struct gh_fw_name_and_curr_state)
 /*
  *  IOCTLs supported by virtio backend driver
  */

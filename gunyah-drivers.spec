@@ -73,6 +73,9 @@ install -m 644 drivers/virt/gunyah/gh_dbl.ko  ${install_mod_path}/extra/drivers/
 install -m 644 drivers/virt/gunyah/gh_msgq.ko  ${install_mod_path}/extra/drivers/virt/gunyah/gh_msgq.ko
 install -m 644 drivers/virt/gunyah/gh_rm_drv.ko  ${install_mod_path}/extra/drivers/virt/gunyah/gh_rm_drv.ko
 install -m 644 drivers/virt/gunyah/gunyah.ko  ${install_mod_path}/extra/drivers/virt/gunyah/gunyah.ko
+install -m 644 drivers/virt/gunyah/gunyah_info.ko  ${install_mod_path}/extra/drivers/virt/gunyah/gunyah_info.ko
+install -m 644 drivers/virt/gunyah/gunyah_trace.ko  ${install_mod_path}/extra/drivers/virt/gunyah/gunyah_trace.ko
+install -m 644 drivers/virt/gunyah/gh_ctrl.ko  ${install_mod_path}/extra/drivers/virt/gunyah/gh_ctrl.ko
 mkdir -p ${install_mod_path}/extra/drivers/tty/hvc/
 install -m 644 drivers/tty/hvc/hvc_gunyah.ko  ${install_mod_path}/extra/drivers/tty/hvc/hvc_gunyah.ko
 
@@ -89,6 +92,9 @@ rm -rf $RPM_BUILD_ROOT
 %{kernel_module_path}/extra/drivers/virt/gunyah/gh_msgq.ko
 %{kernel_module_path}/extra/drivers/virt/gunyah/gh_rm_drv.ko
 %{kernel_module_path}/extra/drivers/virt/gunyah/gunyah.ko
+%{kernel_module_path}/extra/drivers/virt/gunyah/gh_ctrl.ko
+%{kernel_module_path}/extra/drivers/virt/gunyah/gunyah_info.ko
+%{kernel_module_path}/extra/drivers/virt/gunyah/gunyah_trace.ko
 %{kernel_module_path}/extra/drivers/tty/hvc/hvc_gunyah.ko
 
 %{_includedir}/uapi/linux/gunyah.h

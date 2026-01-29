@@ -536,7 +536,7 @@ static int __init gunyah_trace_init(void)
 			le32_to_cpu(info->trace_dbl_irq.irq) + 4096, &fwspec);
 	else
 		ret = gh_fill_irq_fwspec_params(
-			le32_to_cpu(info->trace_dbl_irq.irq), &fwspec);
+			le32_to_cpu(info->trace_dbl_irq.irq) + 32, &fwspec);
 
 	if (ret) {
 		pr_err("Failed to translate interrupt: %d\n", ret);

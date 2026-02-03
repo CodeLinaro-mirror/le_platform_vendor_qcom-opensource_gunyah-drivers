@@ -47,7 +47,7 @@ static int gh_dbl_validate_params(struct gh_dbl_desc *client_desc,
 			enum gh_dbl_dir dir, const unsigned long flags)
 {
 	struct gh_dbl_cap_table *cap_table_entry;
-	int ret;
+	int ret = 0;
 
 	if (IS_ERR_OR_NULL(client_desc))
 		return -EINVAL;
@@ -111,7 +111,7 @@ static int gh_dbl_validate_params(struct gh_dbl_desc *client_desc,
 			return -ERESTARTSYS;
 	}
 
-	return 0;
+	return ret;
 err:
 	spin_unlock(&cap_table_entry->cap_entry_lock);
 	return ret;

@@ -1396,7 +1396,7 @@ static int __init gh_init(void)
 
 	ret = gh_proxy_sched_init();
 	if (ret)
-		pr_err("gunyah: proxy scheduler init failed %d\n", ret);
+		pr_debug("gunyah: proxy scheduler init failed %d\n", ret);
 
 	ret = gh_rm_set_vpm_grp_cb(&set_vm_vpm_grp_info);
 	if (ret)

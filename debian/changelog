@@ -1,0 +1,7 @@
+gunyah-drivers (1.0.0) noble; urgency=medium
+
+  * Converted from Yocto bb file (gunyah-drivers_git.bb).
+  * Package provides gunyah out-of-tree kernel modules for communicating
+    with RM and controlling GVM.
+
+ -- xrao <xrao@qti.qualcomm.com>  Mon, 23 Mar 2026 09:32:32 +0000

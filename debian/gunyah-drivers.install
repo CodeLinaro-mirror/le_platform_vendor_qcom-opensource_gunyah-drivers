@@ -1,0 +1,2 @@
+lib/modules/*
+etc/modules-load.d/gunyah-drivers.conf

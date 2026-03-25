@@ -1,0 +1,19 @@
+Source: gunyah-drivers
+Section: devel
+Priority: optional
+Maintainer: QTI <qti@qualcomm.com>
+Build-Depends: debhelper-compat (= 13), linux-qcom-source， kmod
+Standards-Version: 4.6.0
+Homepage: https://git.codelinaro.org
+
+Package: gunyah-drivers
+Architecture: arm64
+Description: Gunyah Drivers Kernel Modules
+ This is the gunyah driver used to communicate with RM and control GVM.
+
+Package: gunyah-drivers-dev
+Architecture: arm64
+Section: libdevel
+Depends: gunyah-drivers (= ${binary:Version})
+Description: Gunyah Drivers development headers
+ Development headers and Module.symvers for the gunyah driver kernel modules.

@@ -1295,7 +1295,7 @@ void gh_uevent_notify_change(unsigned int type, struct gh_vm *vm)
 	kfree(env);
 }
 
-static irqreturn_t gh_susp_irq_handler(int irq, void *data)
+static irqreturn_t gh_susp_irq_thread(int irq, void *data)
 {
 	int ret;
 	uint64_t vpmg_state;
@@ -1303,7 +1303,7 @@ static irqreturn_t gh_susp_irq_handler(int irq, void *data)
 	struct gh_vm *vm;
 	unsigned long flags;
 
-	vm = find_vm_by_susp_irq(irq);
+	vm = data;
 	if (!vm){
 		pr_err("Failed to get vm for irq=%d\n", irq);
 		return IRQ_HANDLED;
@@ -1360,7 +1360,7 @@ static int set_vm_vpm_grp_info(gh_vmid_t vmid, gh_capid_t cap_id, int virq_num)
 		return ret;
 	}
 
-	ret = request_irq(virq_num, gh_susp_irq_handler, 0, vm->susp_irq_name, NULL);
+	ret = request_threaded_irq(virq_num, NULL, gh_susp_irq_thread, IRQF_ONESHOT, vm->susp_irq_name, vm);
 	if (ret < 0) {
 		pr_err("%s: IRQ registration failed ret=%d\n", __func__, ret);
 		return ret;
@@ -1378,7 +1378,7 @@ static int reset_vm_vpm_grp_info(gh_vmid_t vmid, int *irq)
 	if (vm && vm->susp_irq != -EINVAL) {
 		mutex_lock(&vm->vm_lock);
 		*irq = vm->susp_irq;
-		free_irq(vm->susp_irq, NULL);
+		free_irq(vm->susp_irq, vm);
 		vm->susp_irq = -EINVAL;
 		mutex_unlock(&vm->vm_lock);
 	}

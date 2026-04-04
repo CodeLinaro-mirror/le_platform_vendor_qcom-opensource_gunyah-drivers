@@ -107,6 +107,17 @@ struct gh_vm_property {
 #define GH_RM_RPC_MSG_ID_CALL_VM_IRQ_NOTIFY		0x56000054
 #define GH_RM_RPC_MSG_ID_CALL_VM_IRQ_UNMAP		0x56000055
 
+/* Message IDs: Device Management */
+#define GH_RM_RPC_MSG_ID_CALL_VM_DEVICE_ACCEPT		0x56000060
+#define GH_RM_RPC_MSG_ID_CALL_VM_DEVICE_LEND		0x56000061
+#define GH_RM_RPC_MSG_ID_CALL_VM_DEVICE_RELEASE		0x56000062
+#define GH_RM_RPC_MSG_ID_CALL_VM_DEVICE_RECLAIM		0x56000063
+#define GH_RM_RPC_MSG_ID_CALL_VM_DEVICE_NOTIFY		0x56000064
+#define GH_RM_RPC_MSG_ID_CALL_VM_DEVICE_FIND_HANDLE	0x56000065
+#define GH_RM_RPC_MSG_ID_CALL_VM_DEVICE_GET_RESOURCES	0x56000066
+#define GH_RM_RPC_MSG_ID_CALL_VM_DEVICE_BUS_LOCKDOWN	0x56000067
+#define GH_RM_RPC_MSG_ID_CALL_VM_DEVICE_BUS_UNLOCK	0x56000068
+
 /* Message IDs: VM Services */
 #define GH_RM_RPC_MSG_ID_CALL_VM_SET_STATUS		0x56000080
 #define GH_RM_RPC_MSG_ID_CALL_VM_CONSOLE_OPEN		0x56000081
@@ -363,6 +374,47 @@ struct gh_vm_irq_notify_req_payload {
 		} vmids[0];
 	} optional[0];
 } __packed;
+
+/* Call: VM_DEVICE_LEND */
+
+
+#define GH_VM_DEVICE_LEND_UNMAP_FLAG	0X1
+
+struct gh_device_lend_req_payload {
+	gh_vmid_t vmid;
+	u8 flags;
+	u8 reserved;
+	u32 device_handle;
+} __packed;
+
+/* Call: VM_DEVICE_RECLAIM */
+struct gh_device_reclaim_req_payload {
+        u32 device_handle;
+        u8 flags;
+        u8 reservedi0;
+        u16 reserved1;
+} __packed;
+
+/* Call: VM_DEVICE_FIND_HANDLE */
+#define DEVICE_RESOURCE_DESCRIPTOR_MMIO_TYPE	1
+#define DEVICE_RESOURCE_DESCRIPTOR_IRQ_TYPE		2
+#define DEVICE_RESOURCE_DESCRIPTOR_IOMMU_TYPE	3
+#define DEVICE_RESOURCE_DESCRIPTOR_MSI_TYPE		4
+#define DEVICE_RESOURCE_DESCRIPTOR_PCIE_FUNCTION_TYPE	4
+
+struct device_resource_descriptor {
+	u8 type;
+	u8 reserved0;
+	u16 reserved1;
+	u32 data[3];
+}__packed;
+struct gh_device_find_handle_req_payload {
+	struct device_resource_descriptor descriptor;
+}__packed;
+
+struct gh_device_find_handle_resp_payload {
+	u32 device_handle;
+}__packed;
 
 /* Call: MEM_QCOM_LOOKUP_SGL */
 /*

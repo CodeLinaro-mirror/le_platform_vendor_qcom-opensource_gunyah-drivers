@@ -35,6 +35,11 @@ struct gh_vcpu {
 	struct gh_vm *vm;
 };
 
+enum resource_type {
+        RESOURCE_TYPE_IOMEM,
+        RESOURCE_TYPE_IRQ,
+};
+
 struct gh_vm {
 	bool is_secure_vm; /* is true for Qcom authenticated secure VMs */
 	bool vm_run_once;
@@ -73,6 +78,38 @@ struct gh_shmem {
 	bool is_phantom;
 	bool is_iomem;
 	gh_memparcel_handle_t shmem_handle;
+};
+
+struct gh_shdev {
+	enum resource_type type;
+	u32 addr_low;
+	u32 addr_high;
+	ssize_t size;
+	int irq;
+	u32 device_handle;
+};
+
+struct gh_sec_vm_fw_mem {
+	phys_addr_t fw_phys;
+	void *fw_virt;
+	ssize_t fw_size;
+	bool is_static;
+};
+
+struct gh_sec_vm_dev {
+	struct list_head list;
+	const char *vm_name;
+	struct device *dev;
+	bool system_vm;
+	struct gh_sec_vm_fw_mem *fw_mem_regions;
+	unsigned int fw_mem_count;
+	int pas_id;
+	int vmid;
+	unsigned int fw_index;
+	struct gh_shmem *sh_mem_regions;
+	struct gh_shdev *sh_dev;
+	unsigned int sh_mem_count;
+	unsigned int sh_dev_count;
 };
 
 /*

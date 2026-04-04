@@ -29,29 +29,9 @@
 #include "gh_private.h"
 #include "gh_secure_vm_virtio_backend.h"
 #include "gvm_dump_debugfs.h"
+#include "gh_device_lend.h"
 
 #define PAGE_ROUND_UP(x) ((((u64)(x) + (PAGE_SIZE - 1)) / PAGE_SIZE)  * PAGE_SIZE)
-
-struct gh_sec_vm_fw_mem {
-	phys_addr_t fw_phys;
-	void *fw_virt;
-	ssize_t fw_size;
-	bool is_static;
-};
-
-struct gh_sec_vm_dev {
-	struct list_head list;
-	const char *vm_name;
-	struct device *dev;
-	bool system_vm;
-	struct gh_sec_vm_fw_mem *fw_mem_regions;
-	unsigned int fw_mem_count;
-	int pas_id;
-	int vmid;
-	unsigned int fw_index;
-	struct gh_shmem *sh_mem_regions;
-	unsigned int sh_mem_count;
-};
 
 const static struct {
 	enum gh_vm_names val;
@@ -262,7 +242,26 @@ static int gh_vm_loader_sec_load(struct gh_sec_vm_dev *vm_dev,
 		}
 	}
 
+	for (i = 0; i < vm_dev->sh_dev_count; i++) {
+
+		ret = device_lend(vm, &vm_dev->sh_dev[i]);
+		if (ret) {
+			dev_err(dev, "Failed to lend device %s, %d\n",
+					vm_dev->vm_name, ret);
+			goto release_shmem;
+		}
+	}
+
 	goto release_fw;
+
+release_shmem:
+	for (i = 0; i < vm_dev->sh_mem_count; i++) {
+		ret = gh_reclaim_shmem (vm, &vm_dev->sh_mem_regions[i]);
+		if (ret) {
+			dev_err(dev, "Failed to reclaim shared memory for %s, %d\n",
+					vm_dev->vm_name, ret);
+		}
+	}
 
 release_mem:
 	ret = gh_reclaim_mem(vm, mem_parcels, vm_dev->fw_mem_count,
@@ -270,6 +269,7 @@ release_mem:
 	if (ret)
 		pr_warn("Failed to reclaim system memory for vmid: %d ret: %d\n",
 				vm->vmid, ret);
+
 
 release_fw:
 	kfree(metadata);
@@ -418,14 +418,26 @@ long gh_vm_ioctl_get_mem_count(struct gh_vm *vm)
 	return mem_count;
 }
 
+static vm_fault_t gh_vm_mem_fault(struct vm_fault *vmf)
+{
+	struct vm_area_struct *vma = vmf->vma;
+	struct gh_sec_vm_fw_mem *mem_region = vma->vm_private_data;
+	unsigned long first_pfn;
+	int ret;
+
+	first_pfn = __phys_to_pfn(mem_region->fw_phys);
+	return vmf_insert_page(vma, (unsigned long)vmf->address,
+		pfn_to_page(first_pfn + vmf->pgoff));
+}
+
+static const struct vm_operations_struct gh_vm_mem_vm_ops = {
+	.fault = gh_vm_mem_fault,
+};
+
 static int gh_vm_mem_mmap(struct file *file, struct vm_area_struct *vma)
 {
 	struct gh_sec_vm_fw_mem *mem_region = file->private_data;
 	size_t mmap_size;
-	unsigned long npages;
-	struct page **pages;
-	dma_addr_t paddr;
-	int i, ret = 0;
 
 	if (!mem_region)
 		return -EINVAL;
@@ -434,29 +446,19 @@ static int gh_vm_mem_mmap(struct file *file, struct vm_area_struct *vma)
 	if (mmap_size != mem_region->fw_size)
 		return -EINVAL;
 
-	npages = mmap_size >> PAGE_SHIFT;
-	pages = kvmalloc_array(npages, sizeof(struct page *), GFP_KERNEL);
-	if (!pages)
-		return -ENOMEM;
-
-	paddr = mem_region->fw_phys;
-	for (i = 0; i < npages; i++) {
-		pages[i] = phys_to_page(paddr);
-		paddr += PAGE_SIZE;
-	}
+	if (vma->vm_pgoff != 0)
+		return -EINVAL;
 
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(6, 3, 0))
-	vm_flags_set(vma, vma->vm_flags | VM_DONTEXPAND | VM_DONTDUMP | VM_MIXEDMAP);
+	vm_flags_set(vma, VM_DONTEXPAND | VM_DONTDUMP | VM_MIXEDMAP);
 #else
-	vma->vm_flags = vma->vm_flags | VM_DONTEXPAND | VM_DONTDUMP | VM_MIXEDMAP;
+	vma->vm_flags |= (unsigned long)(VM_DONTEXPAND | VM_DONTDUMP | VM_MIXEDMAP);
 #endif
 
-	ret = vm_insert_pages(vma, vma->vm_start, pages, &npages);
-	if (ret)
-		pr_err("%s: Remapping memory, error: %d\n", __func__, ret);
+	vma->vm_ops = &gh_vm_mem_vm_ops;
+	vma->vm_private_data = mem_region;
 
-	kvfree(pages);
-	return ret;
+	return 0;
 }
 
 
@@ -587,6 +589,13 @@ int gh_secure_vm_loader_reclaim_fw(struct gh_vm *vm)
 	}
 
 	dev = sec_vm_dev->dev;
+
+	for (i = 0; i < sec_vm_dev->sh_dev_count; i ++) {
+		ret = device_reclaim(&sec_vm_dev->sh_dev[i]);
+		if (ret) {
+			pr_err("Failed to reclaim device from VM: %d\n", vm->vmid);
+		}
+	}
 
 	for (i = 0; i < sec_vm_dev->sh_mem_count; i ++) {
 		ret = gh_reclaim_shmem(vm, &sec_vm_dev->sh_mem_regions[i]);
@@ -871,6 +880,9 @@ static int gh_secure_vm_loader_probe(struct platform_device *pdev)
 		return ret;
 
 	ret = gh_vm_shared_mem_probe(sec_vm_dev);
+	if (ret)
+		goto err_unmap_fw;
+	ret = gh_vm_shared_device_probe(sec_vm_dev);
 	if (ret)
 		goto err_unmap_fw;
 

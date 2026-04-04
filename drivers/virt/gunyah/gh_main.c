@@ -24,6 +24,7 @@
 #include "gh_proxy_sched.h"
 #include "gh_private.h"
 #include "gvm_dump_debugfs.h"
+#include "gh_vm_resources.h"
 
 #define MAX_VCPU_NAME		20 /* gh-vcpu:u32_max +1 */
 #define MAX_VMID			128
@@ -1420,6 +1421,10 @@ static int __init gh_init(void)
 
 	enable_gvm_ramdump_debugfs();
 
+	ret = gh_vm_resources_init();
+	if (ret)
+		pr_warn("Failed to register IOMEM share driver: %d\n", ret);
+
 	return ret;
 
 err_gh_init:
@@ -1436,6 +1441,7 @@ static void __exit gh_exit(void)
 	cleanup_gvm_ramdump_list();
 	gh_secure_vm_loader_exit();
 	gh_virtio_backend_exit();
+	gh_vm_resources_exit();
 }
 module_exit(gh_exit);
 

@@ -163,6 +163,14 @@ struct gh_fw_name_and_exit_status {
  */
 #define GH_VM_GET_MEM_REGION		_IOWR(GH_IOCTL_TYPE, 0x45, \
 						struct vm_mem_region)
+/**
+ * GH_VM_GRP_WAKEUP - Userspace can use this IOCTL to wakeup vcpus locked
+ *		      during VM suspend. Userspace can call this for each
+ *		      wake up the guest vcpus of different vmids.
+ *
+ * Return: 0 if success, -errno on failure
+ */
+#define GH_VM_GRP_WAKEUP		_IO(GH_IOCTL_TYPE, 0x46)
 /*
  *  IOCTLs supported by virtio backend driver
  */

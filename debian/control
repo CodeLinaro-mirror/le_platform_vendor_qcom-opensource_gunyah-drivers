@@ -1,8 +1,8 @@
 Source: gunyah-drivers
 Section: devel
 Priority: optional
-Maintainer: QTI <qti@qualcomm.com>
-Build-Depends: debhelper-compat (= 13), linux-qcom-source， kmod
+Maintainer: xrao <xrao@qti.qualcomm.com>
+Build-Depends: debhelper-compat (= 13), linux-qcom-source
 Standards-Version: 4.6.0
 Homepage: https://git.codelinaro.org
 

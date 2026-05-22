@@ -209,6 +209,7 @@ static void gh_vm_cleanup(struct gh_vm *vm)
 		ret = gh_rm_unpopulate_hyp_res(vmid, vm->fw_name);
 		if (ret)
 			pr_warn("Failed to unpopulate hyp resources: %d\n", ret);
+		fallthrough;
 	case GH_RM_VM_STATUS_INIT:
 	case GH_RM_VM_STATUS_AUTH:
 		ret = gh_rm_vm_reset(vmid);
@@ -226,6 +227,7 @@ static void gh_vm_cleanup(struct gh_vm *vm)
 			if (ret)
 				pr_warn("Failed to reclaim mem VMID: %d: %d\n", vmid, ret);
 		}
+		fallthrough;
 	case GH_RM_VM_STATUS_LOAD:
 		ret = gh_rm_vm_dealloc_vmid(vmid);
 		if (ret)
@@ -302,11 +304,10 @@ void gh_destroy_vm(struct gh_vm *vm)
 
 	gh_stop_vm(vm);
 
-	while (vm->created_vcpus && vcpu_id < GH_MAX_VCPUS) {
+	for (vcpu_id = 0; vm->created_vcpus && vcpu_id < GH_MAX_VCPUS; vcpu_id++) {
 		if (!vm->vcpus[vcpu_id])
 			continue;
 		gh_destroy_vcpu(vm->vcpus[vcpu_id]);
-		vcpu_id++;
 	}
 
 	gh_notify_clients(vm, GH_VM_EARLY_POWEROFF);
@@ -632,7 +633,7 @@ static bool is_gh_vm_or_hlos(int vmid)
 bool gh_is_scm_assign_mem_required(u64 *src, const struct qcom_scm_vmperm *newvm,
 				   unsigned int dest_cnt)
 {
-	int ret, i;
+	int i;
 	for (i = 0; i < dest_cnt; i++)
 		if (!is_gh_vm_or_hlos(newvm[i].vmid))
 			return true;
@@ -1299,7 +1300,6 @@ static irqreturn_t gh_susp_irq_handler(int irq, void *data)
 {
 	int ret;
 	uint64_t vpmg_state;
-	gh_capid_t vpmg_cap_id;
 	struct gh_vm *vm;
 	unsigned long flags;
 
@@ -1312,7 +1312,7 @@ static irqreturn_t gh_susp_irq_handler(int irq, void *data)
 	ret = gh_hcall_vpm_group_get_state(vm->cap_id, &vpmg_state);
 	if (ret) {
 		pr_err("Failed to get VPM Group state for cap_id=%llu ret=%d\n",
-			vpmg_cap_id, ret);
+			vm->cap_id, ret);
 		return IRQ_HANDLED;
 	}
 

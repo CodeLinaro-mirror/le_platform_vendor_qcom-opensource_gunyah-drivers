@@ -315,7 +315,7 @@ int gh_msgq_send(void *msgq_client_desc,
 {
 	struct gh_msgq_desc *client_desc = msgq_client_desc;
 	struct gh_msgq_cap_table *cap_table_entry;
-	int ret;
+	int ret = 0;
 
 	if (!client_desc || !buff || !size)
 		return -EINVAL;

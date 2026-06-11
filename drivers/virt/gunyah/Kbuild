@@ -26,7 +26,7 @@ obj-$(CONFIG_GH_MEM_NOTIFIER) += gh_mem_notifier.o
 obj-$(CONFIG_GH_GUEST_POPS) += gh_guest_pops.o
 
 obj-m += gunyah.o
-gunyah-y += gh_main.o gh_secure_vm_virtio_backend.o
+gunyah-y += gh_main.o gh_secure_vm_virtio_backend.o gh_vm_resources.o
 gunyah-y += gh_secure_vm_loader.o gvm_dump_debugfs.o
 gunyah-$(CONFIG_GH_PROXY_SCHED)	+= gh_proxy_sched.o
 

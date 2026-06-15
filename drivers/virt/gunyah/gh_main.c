@@ -28,6 +28,7 @@
 
 #define MAX_VCPU_NAME		20 /* gh-vcpu:u32_max +1 */
 #define MAX_VMID			128
+#define GH_VM_STATUS_WAIT_TIMEOUT	msecs_to_jiffies(5000) /* 5 seconds */
 
 
 SRCU_NOTIFIER_HEAD_STATIC(gh_vm_notifier);
@@ -38,6 +39,9 @@ static struct gh_shiomem_info shiomem_info = {
 	.slock = __SPIN_LOCK_UNLOCKED(shiomem_info.slock),
 };
 
+static inline void gh_vm_set_status(struct gh_vm *vm, u8 status);
+static inline u8 gh_vm_get_status(struct gh_vm *vm);
+
 /*
  * Support for RM calls and the wait for change of status
  */
@@ -47,14 +51,29 @@ static int gh_##name(struct gh_vm *vm, int vm_status)			 \
 	int ret = 0;							 \
 	ret = gh_rm_##name(vm->vmid);					 \
 	if (!ret)							 \
-		vm->status.vm_status = vm_status;			 \
+		gh_vm_set_status(vm, vm_status);			 \
 	return ret;							 \
 }
 
 gh_rm_call_and_set_status(vm_start);
 
-#define gh_wait_for_vm_status(vm, wait_status) 				\
-	wait_event(vm->vm_status_wait, (vm->status.vm_status == wait_status))
+static inline u8 gh_vm_get_status(struct gh_vm *vm)
+{
+	return READ_ONCE(vm->status.vm_status);
+}
+
+static inline void gh_vm_set_status(struct gh_vm *vm, u8 status)
+{
+	WRITE_ONCE(vm->status.vm_status, status);
+}
+
+static inline int gh_wait_for_vm_status(struct gh_vm *vm, int wait_status,
+					unsigned long timeout)
+{
+	return wait_event_timeout(vm->vm_status_wait,
+			READ_ONCE(vm->status.vm_status) == wait_status,
+			timeout) ? 0 : -ETIMEDOUT;
+}
 
 static struct gh_vm *find_vm_by_name(const char *vm_name)
 {
@@ -128,12 +147,12 @@ static void gh_notif_vm_status(struct gh_vm *vm,
 		return;
 
 	/* Wake up the waiters only if there's a change in any of the states */
-	if (status->vm_status != vm->status.vm_status &&
+	if (status->vm_status != gh_vm_get_status(vm) &&
 	   (status->vm_status == GH_RM_VM_STATUS_RESET ||
 	   status->vm_status == GH_RM_VM_STATUS_READY)) {
 		pr_info("VM: %d status %d complete\n", vm->vmid,
 							status->vm_status);
-		vm->status.vm_status = status->vm_status;
+		gh_vm_set_status(vm, status->vm_status);
 		wake_up(&vm->vm_status_wait);
 	}
 }
@@ -146,7 +165,7 @@ static void gh_notif_vm_exited(struct gh_vm *vm,
 
 	mutex_lock(&vm->vm_lock);
 	vm->exit_type = vm_exited->exit_type;
-	vm->status.vm_status = GH_RM_VM_STATUS_EXITED;
+	gh_vm_set_status(vm, GH_RM_VM_STATUS_EXITED);
 	gh_wakeup_all_vcpus(vm->vmid);
 	wake_up(&vm->vm_status_wait);
 	wake_up_interruptible(&vm->vm_status_wait);
@@ -159,7 +178,7 @@ static int gh_wait_for_vm_status_intr(struct gh_vm *vm, int wait_status)
 	int ret = 0;
 
 	ret = wait_event_freezable(vm->vm_status_wait,
-			vm->status.vm_status == wait_status);
+			gh_vm_get_status(vm) == wait_status);
 	if (ret < 0)
 		pr_err("Wait for VM_STATUS %d interrupted\n", wait_status);
 
@@ -171,7 +190,7 @@ static int gh_ioc_wait_for_vm_status(struct gh_vm *vm, int wait_status)
 	int ret = 0;
 
 	ret = wait_event_freezable(vm->vm_exit_ioc_wait,
-			vm->status.vm_status == wait_status);
+			gh_vm_get_status(vm) == wait_status);
 	if (ret < 0)
 		pr_err("Wait for VM_STATUS %d interrupted\n", wait_status);
 
@@ -200,7 +219,7 @@ static int gh_vm_rm_notifier_fn(struct notifier_block *nb,
 static void gh_vm_cleanup(struct gh_vm *vm)
 {
 	gh_vmid_t vmid = vm->vmid;
-	int vm_status = vm->status.vm_status;
+	int vm_status = gh_vm_get_status(vm);
 	int ret;
 
 	switch (vm_status) {
@@ -210,11 +229,15 @@ static void gh_vm_cleanup(struct gh_vm *vm)
 		ret = gh_rm_unpopulate_hyp_res(vmid, vm->fw_name);
 		if (ret)
 			pr_warn("Failed to unpopulate hyp resources: %d\n", ret);
+		fallthrough;
 	case GH_RM_VM_STATUS_INIT:
 	case GH_RM_VM_STATUS_AUTH:
 		ret = gh_rm_vm_reset(vmid);
 		if (!ret) {
-			gh_wait_for_vm_status(vm, GH_RM_VM_STATUS_RESET);
+			ret = gh_wait_for_vm_status(vm, GH_RM_VM_STATUS_RESET,
+						   GH_VM_STATUS_WAIT_TIMEOUT);
+			if (ret)
+				pr_warn("Wait for VM:%d reset status failed: %d\n", vmid, ret);
 		} else
 			pr_warn("Reset is unsuccessful for VM:%d\n", vmid);
 
@@ -227,25 +250,26 @@ static void gh_vm_cleanup(struct gh_vm *vm)
 			if (ret)
 				pr_warn("Failed to reclaim mem VMID: %d: %d\n", vmid, ret);
 		}
+		fallthrough;
 	case GH_RM_VM_STATUS_LOAD:
 		ret = gh_rm_vm_dealloc_vmid(vmid);
 		if (ret)
 			pr_warn("Failed to dealloc VMID: %d: %d\n", vmid, ret);
 	}
 
-	vm->status.vm_status = GH_RM_VM_STATUS_NO_STATE;
+	gh_vm_set_status(vm, GH_RM_VM_STATUS_NO_STATE);
 }
 
 static int gh_exit_vm(struct gh_vm *vm, u32 stop_reason, u8 stop_flags)
 {
 	gh_vmid_t vmid = vm->vmid;
-	int ret = -EINVAL;
+	int ret;
 
 	if (!vmid)
 		return -ENODEV;
 
 	mutex_lock(&vm->vm_lock);
-	if (vm->status.vm_status != GH_RM_VM_STATUS_RUNNING) {
+	if (gh_vm_get_status(vm) != GH_RM_VM_STATUS_RUNNING) {
 		pr_err("VM:%d is not running\n", vmid);
 		mutex_unlock(&vm->vm_lock);
 		return -ENODEV;
@@ -259,9 +283,14 @@ static int gh_exit_vm(struct gh_vm *vm, u32 stop_reason, u8 stop_flags)
 	}
 	mutex_unlock(&vm->vm_lock);
 
-	gh_wait_for_vm_status(vm, GH_RM_VM_STATUS_EXITED);
+	ret = gh_wait_for_vm_status(vm, GH_RM_VM_STATUS_EXITED,
+				   GH_VM_STATUS_WAIT_TIMEOUT);
+	if (ret) {
+		pr_err("Failed to wait for VM:%d exit status: %d\n", vmid, ret);
+		return ret;
+	}
 
-	return ret;
+	return 0;
 }
 
 static int gh_stop_vm(struct gh_vm *vm)
@@ -298,16 +327,15 @@ void gh_destroy_vm(struct gh_vm *vm)
 {
 	int vcpu_id = 0;
 
-	if (vm->status.vm_status == GH_RM_VM_STATUS_NO_STATE)
+	if (gh_vm_get_status(vm) == GH_RM_VM_STATUS_NO_STATE)
 		goto clean_vm;
 
 	gh_stop_vm(vm);
 
-	while (vm->created_vcpus && vcpu_id < GH_MAX_VCPUS) {
+	for (vcpu_id = 0; vm->created_vcpus && vcpu_id < GH_MAX_VCPUS; vcpu_id++) {
 		if (!vm->vcpus[vcpu_id])
 			continue;
 		gh_destroy_vcpu(vm->vcpus[vcpu_id]);
-		vcpu_id++;
 	}
 
 	gh_notify_clients(vm, GH_VM_EARLY_POWEROFF);
@@ -353,13 +381,13 @@ static int gh_vcpu_ioctl_run(struct gh_vcpu *vcpu)
 
 	mutex_lock(&vm->vm_lock);
 
-	if (vm->status.vm_status == GH_RM_VM_STATUS_RUNNING) {
+	if (gh_vm_get_status(vm) == GH_RM_VM_STATUS_RUNNING) {
 		mutex_unlock(&vm->vm_lock);
 		goto start_vcpu_run;
 	}
 
 	if (vm->vm_run_once &&
-		vm->status.vm_status != GH_RM_VM_STATUS_RUNNING) {
+		gh_vm_get_status(vm) != GH_RM_VM_STATUS_RUNNING) {
 		pr_err("VM:%d has failed to run before\n", vm->vmid);
 		mutex_unlock(&vm->vm_lock);
 		return -EINVAL;
@@ -377,7 +405,7 @@ static int gh_vcpu_ioctl_run(struct gh_vcpu *vcpu)
 		return ret;
 	}
 
-	if (vm->status.vm_status != GH_RM_VM_STATUS_READY) {
+	if (gh_vm_get_status(vm) != GH_RM_VM_STATUS_READY) {
 		pr_err("VM:%d not ready to start\n", vm->vmid);
 		ret = -EINVAL;
 		mutex_unlock(&vm->vm_lock);
@@ -454,7 +482,7 @@ static int gh_vm_ioctl_get_vcpu_count(struct gh_vm *vm)
 	if (!vm->is_secure_vm)
 		return -EINVAL;
 
-	if (vm->status.vm_status != GH_RM_VM_STATUS_READY)
+	if (gh_vm_get_status(vm) != GH_RM_VM_STATUS_READY)
 		return -EAGAIN;
 
 	return vm->allowed_vcpus;
@@ -633,7 +661,7 @@ static bool is_gh_vm_or_hlos(int vmid)
 bool gh_is_scm_assign_mem_required(u64 *src, const struct qcom_scm_vmperm *newvm,
 				   unsigned int dest_cnt)
 {
-	int ret, i;
+	int i;
 	for (i = 0; i < dest_cnt; i++)
 		if (!is_gh_vm_or_hlos(newvm[i].vmid))
 			return true;
@@ -992,7 +1020,7 @@ long gh_vm_configure(u16 auth_mech, u64 image_offset,
 						vm->vmid, ret);
 			return ret;
 		}
-		vm->status.vm_status = GH_RM_VM_STATUS_AUTH;
+		gh_vm_set_status(vm, GH_RM_VM_STATUS_AUTH);
 		if (!pas_id) {
 			pr_err("Incorrect pas_id %d for VM:%d\n", pas_id,
 						vm->vmid);
@@ -1007,7 +1035,7 @@ long gh_vm_configure(u16 auth_mech, u64 image_offset,
 						vm->vmid, ret);
 			return ret;
 		}
-		vm->status.vm_status = GH_RM_VM_STATUS_INIT;
+		gh_vm_set_status(vm, GH_RM_VM_STATUS_INIT);
 		break;
 	default:
 		pr_err("Invalid auth mechanism for VM\n");
@@ -1021,7 +1049,12 @@ long gh_vm_configure(u16 auth_mech, u64 image_offset,
 		return ret;
 	}
 
-	gh_wait_for_vm_status(vm, GH_RM_VM_STATUS_READY);
+	ret = gh_wait_for_vm_status(vm, GH_RM_VM_STATUS_READY,
+				   GH_VM_STATUS_WAIT_TIMEOUT);
+	if (ret) {
+		pr_err("Failed to wait for VM:%d ready status: %d\n", vm->vmid, ret);
+		return ret;
+	}
 
 	ret = gh_rm_populate_hyp_res(vm->vmid, fw_name);
 	if (ret < 0) {
@@ -1164,7 +1197,7 @@ static struct gh_vm *gh_create_vm(void)
 	refcount_set(&vm->users_count, 1);
 	init_waitqueue_head(&vm->vm_status_wait);
 	init_waitqueue_head(&vm->vm_exit_ioc_wait);
-	vm->status.vm_status = GH_RM_VM_STATUS_NO_STATE;
+	gh_vm_set_status(vm, GH_RM_VM_STATUS_NO_STATE);
 	vm->exit_type = -EINVAL;
 	vm->susp_irq = -EINVAL;
 	vm->vm_suspend_type = VM_STATE_CREATED;
@@ -1296,15 +1329,14 @@ void gh_uevent_notify_change(unsigned int type, struct gh_vm *vm)
 	kfree(env);
 }
 
-static irqreturn_t gh_susp_irq_handler(int irq, void *data)
+static irqreturn_t gh_susp_irq_thread(int irq, void *data)
 {
 	int ret;
 	uint64_t vpmg_state;
-	gh_capid_t vpmg_cap_id;
 	struct gh_vm *vm;
 	unsigned long flags;
 
-	vm = find_vm_by_susp_irq(irq);
+	vm = data;
 	if (!vm){
 		pr_err("Failed to get vm for irq=%d\n", irq);
 		return IRQ_HANDLED;
@@ -1313,7 +1345,7 @@ static irqreturn_t gh_susp_irq_handler(int irq, void *data)
 	ret = gh_hcall_vpm_group_get_state(vm->cap_id, &vpmg_state);
 	if (ret) {
 		pr_err("Failed to get VPM Group state for cap_id=%llu ret=%d\n",
-			vpmg_cap_id, ret);
+			vm->cap_id, ret);
 		return IRQ_HANDLED;
 	}
 
@@ -1361,7 +1393,7 @@ static int set_vm_vpm_grp_info(gh_vmid_t vmid, gh_capid_t cap_id, int virq_num)
 		return ret;
 	}
 
-	ret = request_irq(virq_num, gh_susp_irq_handler, 0, vm->susp_irq_name, NULL);
+	ret = request_threaded_irq(virq_num, NULL, gh_susp_irq_thread, IRQF_ONESHOT, vm->susp_irq_name, vm);
 	if (ret < 0) {
 		pr_err("%s: IRQ registration failed ret=%d\n", __func__, ret);
 		return ret;
@@ -1379,7 +1411,7 @@ static int reset_vm_vpm_grp_info(gh_vmid_t vmid, int *irq)
 	if (vm && vm->susp_irq != -EINVAL) {
 		mutex_lock(&vm->vm_lock);
 		*irq = vm->susp_irq;
-		free_irq(vm->susp_irq, NULL);
+		free_irq(vm->susp_irq, vm);
 		vm->susp_irq = -EINVAL;
 		mutex_unlock(&vm->vm_lock);
 	}
@@ -1397,7 +1429,7 @@ static int __init gh_init(void)
 
 	ret = gh_proxy_sched_init();
 	if (ret)
-		pr_err("gunyah: proxy scheduler init failed %d\n", ret);
+		pr_debug("gunyah: proxy scheduler init failed %d\n", ret);
 
 	ret = gh_rm_set_vpm_grp_cb(&set_vm_vpm_grp_info);
 	if (ret)

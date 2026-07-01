@@ -418,14 +418,35 @@ long gh_vm_ioctl_get_mem_count(struct gh_vm *vm)
 	return mem_count;
 }
 
+static vm_fault_t gh_vm_mem_fault(struct vm_fault *vmf)
+{
+	struct vm_area_struct *vma = vmf->vma;
+	struct gh_sec_vm_fw_mem *mem_region = vma->vm_private_data;
+	unsigned long pfn;
+	unsigned long max_pgoff;
+	vm_fault_t ret;
+
+	if (!mem_region)
+		return VM_FAULT_SIGBUS;
+
+	max_pgoff = mem_region->fw_size >> PAGE_SHIFT;
+	if (vmf->pgoff >= max_pgoff)
+		return VM_FAULT_SIGBUS;
+
+	pfn = __phys_to_pfn(mem_region->fw_phys) + vmf->pgoff;
+	ret = vmf_insert_page(vma, vmf->address, pfn_to_page(pfn));
+
+	return ret;
+}
+
+static const struct vm_operations_struct gh_vm_mem_vm_ops = {
+	.fault = gh_vm_mem_fault,
+};
+
 static int gh_vm_mem_mmap(struct file *file, struct vm_area_struct *vma)
 {
 	struct gh_sec_vm_fw_mem *mem_region = file->private_data;
 	size_t mmap_size;
-	unsigned long npages;
-	struct page **pages;
-	dma_addr_t paddr;
-	int i, ret = 0;
 
 	if (!mem_region)
 		return -EINVAL;
@@ -434,29 +455,19 @@ static int gh_vm_mem_mmap(struct file *file, struct vm_area_struct *vma)
 	if (mmap_size != mem_region->fw_size)
 		return -EINVAL;
 
-	npages = mmap_size >> PAGE_SHIFT;
-	pages = kvmalloc_array(npages, sizeof(struct page *), GFP_KERNEL);
-	if (!pages)
-		return -ENOMEM;
-
-	paddr = mem_region->fw_phys;
-	for (i = 0; i < npages; i++) {
-		pages[i] = phys_to_page(paddr);
-		paddr += PAGE_SIZE;
-	}
+	if (vma->vm_pgoff != 0)
+		return -EINVAL;
 
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(6, 3, 0))
-	vm_flags_set(vma, vma->vm_flags | VM_DONTEXPAND | VM_DONTDUMP | VM_MIXEDMAP);
+	vm_flags_set(vma, VM_DONTEXPAND | VM_DONTDUMP | VM_MIXEDMAP);
 #else
-	vma->vm_flags = vma->vm_flags | VM_DONTEXPAND | VM_DONTDUMP | VM_MIXEDMAP;
+	vma->vm_flags |= (unsigned long)(VM_DONTEXPAND | VM_DONTDUMP | VM_MIXEDMAP);
 #endif
 
-	ret = vm_insert_pages(vma, vma->vm_start, pages, &npages);
-	if (ret)
-		pr_err("%s: Remapping memory, error: %d\n", __func__, ret);
+	vma->vm_ops = &gh_vm_mem_vm_ops;
+	vma->vm_private_data = mem_region;
 
-	kvfree(pages);
-	return ret;
+	return 0;
 }
 
 

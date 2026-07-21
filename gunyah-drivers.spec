@@ -62,6 +62,7 @@ install -m 755 include/linux/gunyah/gh_msgq.h %{buildroot}/usr/include/linux/gun
 install -m 755 include/linux/gunyah/gh_rm_drv_oot.h %{buildroot}/usr/include/linux/gunyah/gh_rm_drv.h
 install -m 755 include/linux/gunyah/gh_vm.h %{buildroot}/usr/include/linux/gunyah
 install -m 755 include/linux/gunyah/hcall_common.h %{buildroot}/usr/include/linux/gunyah
+install -m 755 include/linux/gunyah/gh_vm_addr_translation.h %{buildroot}/usr/include/linux/gunyah
 
 mkdir -p %{buildroot}/usr/include/uapi/linux/
 install -m 755 include/uapi/linux/gunyah_oot.h %{buildroot}/usr/include/uapi/linux/gunyah.h

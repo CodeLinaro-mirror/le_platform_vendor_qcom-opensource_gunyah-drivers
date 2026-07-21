@@ -1,6 +1,6 @@
-// SPDX-License-Identifier: GPL-2.0-only
+/* SPDX-License-Identifier: GPL-2.0-only */
 /*
- * Copyright (c) 2022-2025 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
 
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
@@ -25,6 +25,7 @@
 #include "gh_private.h"
 #include "gvm_dump_debugfs.h"
 #include "gh_vm_resources.h"
+#include "gh_vm_addr_translate.h"
 
 #define MAX_VCPU_NAME		20 /* gh-vcpu:u32_max +1 */
 #define MAX_VMID			128
@@ -377,6 +378,7 @@ static int gh_vcpu_ioctl_run(struct gh_vcpu *vcpu)
 {
 	struct gh_hcall_vcpu_run_resp vcpu_run;
 	struct gh_vm *vm = vcpu->vm;
+	struct gh_sec_vm_dev *sec_vm_dev;
 	int ret = 0;
 
 	mutex_lock(&vm->vm_lock);
@@ -420,6 +422,27 @@ static int gh_vcpu_ioctl_run(struct gh_vcpu *vcpu)
 		mutex_unlock(&vm->vm_lock);
 		goto err_powerup;
 	}
+
+	if (vm->is_secure_vm) {
+		sec_vm_dev = get_sec_vm_dev_by_name(vm->fw_name);
+		if (!sec_vm_dev) {
+			pr_err("Requested Secure VM %s not supported\n",
+								vm->fw_name);
+			ret = -EINVAL;
+			mutex_unlock(&vm->vm_lock);
+			goto err_powerup;
+		}
+
+		ret = gh_gvm_mem_translate_add_mem_regions(sec_vm_dev);
+		if (ret) {
+			pr_err("failed %d to add VM %d memory regions\n",
+					ret, sec_vm_dev->vmid);
+			ret = -EINVAL;
+			mutex_unlock(&vm->vm_lock);
+			goto err_powerup;
+		}
+	}
+
 	pr_info("VM:%d started running\n", vm->vmid);
 
 	mutex_unlock(&vm->vm_lock);

@@ -38,7 +38,7 @@ static void *info_area;
  */
 enum gh_error gh_hypercall_addrspace_find_info_area(unsigned long *ipa, unsigned long *size)
 {
-	struct arm_smccc_res res;
+	struct arm_smccc_res res = { 0 };
 
 	arm_smccc_1_1_hvc(GH_HYPERCALL_ADDRSPACE_FIND_INFO_AREA, 0, &res);
 	if (res.a0 == GH_ERROR_OK) {

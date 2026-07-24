@@ -15,6 +15,7 @@
 #include <linux/fs.h>
 #include <linux/firmware/qcom/qcom_scm.h>
 #include <linux/gunyah_oot.h>
+#include <linux/gunyah/gh_errno.h>
 #include <linux/errno.h>
 #include <linux/types.h>
 #include <linux/limits.h>
@@ -1102,6 +1103,23 @@ long gh_vm_configure(u16 auth_mech, u64 image_offset,
 	return ret;
 }
 
+static long gh_vm_ioctl_vcpu_wakeup(struct gh_vm *vm)
+{
+	int ret;
+
+	if (!vm->cap_id) {
+		pr_err("VPM group cap_id not initialized for VM:%d\n", vm->vmid);
+		return -ENODEV;
+	}
+
+	ret = gh_hcall_vpm_group_wakeup(vm->cap_id);
+	if (ret)
+		pr_err("Failed to wake-up GVM via HVC call for cap_id=%llu ret=%d\n",
+			vm->cap_id, ret);
+
+	return gh_remap_error(ret);
+}
+
 static long gh_vm_ioctl(struct file *filp,
 				unsigned int cmd, unsigned long arg)
 {
@@ -1126,6 +1144,9 @@ static long gh_vm_ioctl(struct file *filp,
 		break;
 	case GH_VM_GET_MEM_REGION:
 		ret = gh_vm_ioctl_get_mem_region(vm, arg);
+		break;
+	case GH_VM_GRP_WAKEUP:
+		ret = gh_vm_ioctl_vcpu_wakeup(vm);
 		break;
 	default:
 		ret = gh_virtio_backend_ioctl(vm->fw_name, cmd, arg);

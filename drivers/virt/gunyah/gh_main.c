@@ -1,6 +1,6 @@
-// SPDX-License-Identifier: GPL-2.0-only
+/* SPDX-License-Identifier: GPL-2.0-only */
 /*
- * Copyright (c) 2022-2025 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
 
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
@@ -15,6 +15,7 @@
 #include <linux/fs.h>
 #include <linux/firmware/qcom/qcom_scm.h>
 #include <linux/gunyah_oot.h>
+#include <linux/gunyah/gh_errno.h>
 #include <linux/errno.h>
 #include <linux/types.h>
 #include <linux/limits.h>
@@ -25,6 +26,7 @@
 #include "gh_private.h"
 #include "gvm_dump_debugfs.h"
 #include "gh_vm_resources.h"
+#include "gh_vm_addr_translate.h"
 
 #define MAX_VCPU_NAME		20 /* gh-vcpu:u32_max +1 */
 #define MAX_VMID			128
@@ -377,6 +379,7 @@ static int gh_vcpu_ioctl_run(struct gh_vcpu *vcpu)
 {
 	struct gh_hcall_vcpu_run_resp vcpu_run;
 	struct gh_vm *vm = vcpu->vm;
+	struct gh_sec_vm_dev *sec_vm_dev;
 	int ret = 0;
 
 	mutex_lock(&vm->vm_lock);
@@ -420,6 +423,27 @@ static int gh_vcpu_ioctl_run(struct gh_vcpu *vcpu)
 		mutex_unlock(&vm->vm_lock);
 		goto err_powerup;
 	}
+
+	if (vm->is_secure_vm) {
+		sec_vm_dev = get_sec_vm_dev_by_name(vm->fw_name);
+		if (!sec_vm_dev) {
+			pr_err("Requested Secure VM %s not supported\n",
+								vm->fw_name);
+			ret = -EINVAL;
+			mutex_unlock(&vm->vm_lock);
+			goto err_powerup;
+		}
+
+		ret = gh_gvm_mem_translate_add_mem_regions(sec_vm_dev);
+		if (ret) {
+			pr_err("failed %d to add VM %d memory regions\n",
+					ret, sec_vm_dev->vmid);
+			ret = -EINVAL;
+			mutex_unlock(&vm->vm_lock);
+			goto err_powerup;
+		}
+	}
+
 	pr_info("VM:%d started running\n", vm->vmid);
 
 	mutex_unlock(&vm->vm_lock);
@@ -1079,6 +1103,23 @@ long gh_vm_configure(u16 auth_mech, u64 image_offset,
 	return ret;
 }
 
+static long gh_vm_ioctl_vcpu_wakeup(struct gh_vm *vm)
+{
+	int ret;
+
+	if (!vm->cap_id) {
+		pr_err("VPM group cap_id not initialized for VM:%d\n", vm->vmid);
+		return -ENODEV;
+	}
+
+	ret = gh_hcall_vpm_group_wakeup(vm->cap_id);
+	if (ret)
+		pr_err("Failed to wake-up GVM via HVC call for cap_id=%llu ret=%d\n",
+			vm->cap_id, ret);
+
+	return gh_remap_error(ret);
+}
+
 static long gh_vm_ioctl(struct file *filp,
 				unsigned int cmd, unsigned long arg)
 {
@@ -1103,6 +1144,9 @@ static long gh_vm_ioctl(struct file *filp,
 		break;
 	case GH_VM_GET_MEM_REGION:
 		ret = gh_vm_ioctl_get_mem_region(vm, arg);
+		break;
+	case GH_VM_GRP_WAKEUP:
+		ret = gh_vm_ioctl_vcpu_wakeup(vm);
 		break;
 	default:
 		ret = gh_virtio_backend_ioctl(vm->fw_name, cmd, arg);
@@ -1429,7 +1473,7 @@ static int __init gh_init(void)
 
 	ret = gh_proxy_sched_init();
 	if (ret)
-		pr_err("gunyah: proxy scheduler init failed %d\n", ret);
+		pr_debug("gunyah: proxy scheduler init failed %d\n", ret);
 
 	ret = gh_rm_set_vpm_grp_cb(&set_vm_vpm_grp_info);
 	if (ret)

@@ -1,6 +1,6 @@
-// SPDX-License-Identifier: GPL-2.0-only
+/* SPDX-License-Identifier: GPL-2.0-only */
 /*
- * Copyright (c) 2022-2025 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
 
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
@@ -29,29 +29,9 @@
 #include "gh_private.h"
 #include "gh_secure_vm_virtio_backend.h"
 #include "gvm_dump_debugfs.h"
+#include "gh_vm_addr_translate.h"
 
 #define PAGE_ROUND_UP(x) ((((u64)(x) + (PAGE_SIZE - 1)) / PAGE_SIZE)  * PAGE_SIZE)
-
-struct gh_sec_vm_fw_mem {
-	phys_addr_t fw_phys;
-	void *fw_virt;
-	ssize_t fw_size;
-	bool is_static;
-};
-
-struct gh_sec_vm_dev {
-	struct list_head list;
-	const char *vm_name;
-	struct device *dev;
-	bool system_vm;
-	struct gh_sec_vm_fw_mem *fw_mem_regions;
-	unsigned int fw_mem_count;
-	int pas_id;
-	int vmid;
-	unsigned int fw_index;
-	struct gh_shmem *sh_mem_regions;
-	unsigned int sh_mem_count;
-};
 
 const static struct {
 	enum gh_vm_names val;
@@ -79,7 +59,7 @@ static inline enum gh_vm_names get_gh_vm_name(const char *str)
 	return GH_VM_MAX;
 }
 
-static struct gh_sec_vm_dev *get_sec_vm_dev_by_name(const char *vm_name)
+struct gh_sec_vm_dev *get_sec_vm_dev_by_name(const char *vm_name)
 {
 	struct gh_sec_vm_dev *sec_vm_dev;
 
@@ -629,6 +609,8 @@ int gh_secure_vm_loader_reclaim_fw(struct gh_vm *vm)
 			collect_gvm_ramdump(sec_vm_dev->dev);
 	}
 
+	gh_gvm_mem_translate_remove_mem_regions(sec_vm_dev);
+
 	return ret;
 }
 
@@ -869,7 +851,6 @@ static int gh_secure_vm_loader_probe(struct platform_device *pdev)
 	if (sec_vm_dev->system_vm)
 		dev_info(dev, "Vm with no shutdown attribute added\n");
 
-
 	ret = of_property_read_u32(dev->of_node,
 				"qcom,vmid", &sec_vm_dev->vmid);
 	if (ret) {
@@ -889,6 +870,13 @@ static int gh_secure_vm_loader_probe(struct platform_device *pdev)
 				      &sec_vm_dev->vm_name);
 	if (ret)
 		goto err_unmap_fw;
+
+	sec_vm_dev->translation_required =
+		of_property_read_bool(dev->of_node, "qcom,translation_required");
+	if (sec_vm_dev->translation_required)
+		dev_info(dev,
+			 "GVM address translation_required, vm_name=%s vmid=%d\n",
+			 sec_vm_dev->vm_name, sec_vm_dev->vmid);
 
 	ret = of_property_read_u32(dev->of_node,
 				"qcom,firmware-index", &sec_vm_dev->fw_index);
@@ -920,6 +908,12 @@ static int gh_secure_vm_loader_probe(struct platform_device *pdev)
 	if (ret)
 		goto err_unmap_fw;
 
+	ret = gh_gvm_mem_translate_init(sec_vm_dev);
+	if (ret) {
+		dev_err(dev, "Failed to initialize gvm memory translate %d\n", ret);
+		goto err_unmap_fw;
+	}
+
 	spin_lock(&gh_sec_vm_lock);
 	list_add(&sec_vm_dev->list, &gh_sec_vm_list);
 	spin_unlock(&gh_sec_vm_lock);
@@ -942,6 +936,8 @@ static int gh_secure_vm_loader_remove(struct platform_device *pdev)
 	int i;
 
 	sec_vm_dev = platform_get_drvdata(pdev);
+
+	gh_gvm_mem_translate_deinit(sec_vm_dev);
 
 	spin_lock(&gh_sec_vm_lock);
 	list_del(&sec_vm_dev->list);

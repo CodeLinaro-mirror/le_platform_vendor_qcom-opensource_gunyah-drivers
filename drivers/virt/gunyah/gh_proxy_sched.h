@@ -70,6 +70,18 @@ static inline int gh_hcall_vpm_group_get_state(gh_capid_t vpmg_capid,
 	return ret;
 }
 
+static inline int gh_hcall_vpm_group_wakeup(gh_capid_t vpmg_capid)
+{
+	int ret;
+	struct gh_hcall_resp _resp = {0};
+
+	ret = _gh_hcall(0x606F,
+			(struct gh_hcall_args){ vpmg_capid },
+			&_resp);
+
+	return ret;
+}
+
 /*
  * proxy scheduler APIs called by gunyah driver
  */
@@ -87,6 +99,7 @@ int gh_vcpu_run(gh_vmid_t vmid, unsigned int vcpu_id, uint64_t resume_data_0,
 			struct gh_hcall_vcpu_run_resp *resp);
 
 void gh_wakeup_all_vcpus(gh_vmid_t vmid);
+
 #else /* !CONFIG_GH_PROXY_SCHED */
 static inline int gh_proxy_sched_init(void)
 {

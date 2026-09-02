@@ -27,7 +27,7 @@ static enum gh_error gunyah_hypercall_update_trace_flag(u64 set_flags,
 							    u64 clear_flags,
 							    u64 *enabled_flags)
 {
-	struct arm_smccc_res res;
+	struct arm_smccc_res res = { 0 };
 
 	arm_smccc_1_1_hvc(GUNYAH_HYPERCALL_TRACE_BUF_MGMT, set_flags,
 			  clear_flags, 0, &res);
@@ -48,7 +48,7 @@ static enum gh_error gunyah_hypercall_update_trace_flag(u64 set_flags,
 static enum gh_error
 gunyah_hypercall_config_trace_buf_notify(bool notify_enable)
 {
-	struct arm_smccc_res res;
+	struct arm_smccc_res res = { 0 };
 
 	arm_smccc_1_1_hvc(GUNYAH_HYPERCALL_TRACE_BUF_MGMT, notify_enable, 0, 1,
 			  &res);

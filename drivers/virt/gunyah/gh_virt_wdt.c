@@ -43,7 +43,7 @@
 static struct arm_smccc_res gh_wdt_call(u32 smc_id, u32 arg1,
 					u16 arg2, u16 arg3)
 {
-	struct arm_smccc_res res;
+	struct arm_smccc_res res = { 0 };
 
 	if (smc_id == VIRT_WDT_SET_TIME)
 		/* virtual watchdog expecting u16 values for bark and bite */

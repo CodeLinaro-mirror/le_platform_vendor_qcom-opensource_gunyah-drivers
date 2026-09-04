@@ -264,7 +264,7 @@ static int __init gh_ctrl_init(void)
 {
 	int ret;
 	struct device_node *hyp;
-	struct arm_smccc_res res;
+	struct arm_smccc_res res = { 0 };
 
 	hyp = of_find_node_by_path("/hypervisor");
 

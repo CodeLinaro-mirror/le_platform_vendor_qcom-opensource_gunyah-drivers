@@ -222,17 +222,6 @@ static int gh_vm_loader_sec_load(struct gh_sec_vm_dev *vm_dev,
 		goto release_fw;
 	}
 
-	vm->is_secure_vm = true;
-
-	ret = gh_vm_configure(GH_VM_AUTH_PIL_ELF, metadata_offset,
-				metadata_size, 0, 0, vm_dev->pas_id,
-				vm_dev->vm_name, vm);
-	if (ret) {
-		dev_err(dev, "Configuring secure VM %s to memory failed %ld\n",
-					vm_dev->vm_name, ret);
-		goto release_mem;
-	}
-
 	for (i = 0; i < vm_dev->sh_mem_count; i++) {
 		ret = gh_provide_shmem(vm, &vm_dev->sh_mem_regions[i]);
 		if (ret) {
@@ -242,14 +231,37 @@ static int gh_vm_loader_sec_load(struct gh_sec_vm_dev *vm_dev,
 		}
 	}
 
+	vm->is_secure_vm = true;
+
+	ret = gh_vm_configure(GH_VM_AUTH_PIL_ELF, metadata_offset,
+				metadata_size, 0, 0, vm_dev->pas_id,
+				vm_dev->vm_name, vm);
+	if (ret) {
+		dev_err(dev, "Configuring secure VM %s to memory failed %ld\n",
+					vm_dev->vm_name, ret);
+		goto release_shmem;
+	}
+
 	goto release_fw;
 
+release_shmem:
+	if(vm->status.vm_status == GH_RM_VM_STATUS_LOAD) {
+		for (i = 0; i < vm_dev->sh_mem_count; i++) {
+			ret = gh_reclaim_shmem(vm, &vm_dev->sh_mem_regions[i]);
+			if (ret)
+				pr_warn("Failed to reclaim shared memory for vmid: %d ret: %d\n",
+						vm->vmid, ret);
+		}
+	}
+
 release_mem:
-	ret = gh_reclaim_mem(vm, mem_parcels, vm_dev->fw_mem_count,
+	if(vm->status.vm_status == GH_RM_VM_STATUS_LOAD) {
+		ret = gh_reclaim_mem(vm, mem_parcels, vm_dev->fw_mem_count,
 					vm_dev->system_vm);
-	if (ret)
-		pr_warn("Failed to reclaim system memory for vmid: %d ret: %d\n",
-				vm->vmid, ret);
+		if (ret)
+			pr_warn("Failed to reclaim system memory for vmid: %d ret: %d\n",
+					vm->vmid, ret);
+	}
 
 release_fw:
 	kfree(metadata);

@@ -16,6 +16,7 @@
 #define GH_EVENT_DESTROY_VM		1
 #define GH_EVENT_VM_SUSPENDED		2
 #define GH_EVENT_VM_RESUMED		3
+#define GH_EVENT_STOP_VM		4
 #define GH_MAX_VCPUS			8
 #define GH_MAX_VMIDS			16
 #define GH_SHIOMEM_LABEL_BASE		0x7E
@@ -49,6 +50,8 @@ struct gh_vm {
 	wait_queue_head_t vm_exit_ioc_wait;
 	int exit_type;
 	refcount_t users_count;
+	atomic_t vcpu_users;
+	bool vm_stopped;
 	gh_memparcel_handle_t mem_handle;
 	struct mutex vm_lock;
 	struct list_head list;

@@ -241,7 +241,7 @@ static ssize_t gunyah_trace_read(struct file *file, char __user *user_buf,
 			new_entry_size = new_entry_number * ENTRY_SIZE;
 			/* if reach the end of buffer */
 			buf_tocopy_size =
-				min((ssize_t)(buf->entry_num - last_index - 1) *
+				min((ssize_t)(buf->entry_num - last_index) *
 					    ENTRY_SIZE, new_entry_size);
 			/* check if buffer is enough */
 			buf_tocopy_size = min(buf_tocopy_size, buf_remain_size);
@@ -254,10 +254,10 @@ static ssize_t gunyah_trace_read(struct file *file, char __user *user_buf,
 			buf_remain_size -= buf_tocopy_size;
 			last_wrap_cnt +=
 				(last_index + buf_tocopy_size / ENTRY_SIZE) /
-				(buf->entry_num - 1);
+				(buf->entry_num);
 			last_index =
 				(last_index + buf_tocopy_size / ENTRY_SIZE) %
-				(buf->entry_num - 1);
+				(buf->entry_num);
 		}
 		spin_lock_irqsave(&file_data->trace_buf_status[i].lock, flags);
 		file_data->trace_buf_status[i].last_wrap_cnt = last_wrap_cnt;

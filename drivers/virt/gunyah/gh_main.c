@@ -635,7 +635,8 @@ int gh_share_iomem(struct gh_vm *vm, struct gh_shmem *shmems)
 	sgl_desc->sgl_entries[0].ipa_base = phys;
 	sgl_desc->sgl_entries[0].size = size;
 
-	ret = gh_rm_mem_share(GH_RM_MEM_TYPE_IO, 0, shmems->gunyah_label,
+	ret = gh_rm_mem_share(shmems->is_normal ? GH_RM_MEM_TYPE_NORMAL : GH_RM_MEM_TYPE_IO,
+			 0, shmems->gunyah_label,
 			 acl_desc, sgl_desc, NULL, &shmems->shmem_handle);
 	*shmem_handle = shmems->shmem_handle;
 	if (ret){
@@ -799,7 +800,7 @@ int gh_reclaim_shmem(struct gh_vm *vm, struct gh_shmem *shmems)
 	if (shmems->is_shared)
 		srcvmid[0] |= BIT(QCOM_SCM_VMID_HLOS);
 
-	if (!shmems->is_iomem) {
+	if (!shmems->is_iomem && !shmems->is_normal) {
 		ret = gh_rm_mem_reclaim(shmems->shmem_handle, 0);
 		if (ret)
 			pr_err("Failed to reclaim memory for %d, %d\n",
@@ -929,7 +930,7 @@ int gh_provide_shmem(struct gh_vm *vm, struct gh_shmem *shmems)
 	u64 dstvmid[2] = {0};
 
 	src_vmids_count += shmems->src_vmids_count;
-	if (shmems->is_iomem)
+	if (shmems->is_iomem || shmems->is_normal)
 		return gh_share_iomem(vm, shmems);
 
 	srcVM = kzalloc(src_vmids_count * sizeof(struct qcom_scm_vmperm),

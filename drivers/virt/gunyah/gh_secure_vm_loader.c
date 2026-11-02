@@ -802,6 +802,11 @@ static int gh_vm_shared_mem_probe(struct gh_sec_vm_dev *sec_vm_dev)
 		else
 			sec_vm_dev->sh_mem_regions[i].is_iomem = false;
 
+		if (of_property_read_bool(node, "qcom,is-normal"))
+			sec_vm_dev->sh_mem_regions[i].is_normal = true;
+		else
+			sec_vm_dev->sh_mem_regions[i].is_normal = false;
+
 		if (of_property_read_bool(node, "qcom,is-shared"))
 			sec_vm_dev->sh_mem_regions[i].is_shared = true;
 		else

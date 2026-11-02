@@ -72,6 +72,7 @@ struct gh_shmem {
 	bool is_shared;
 	bool is_phantom;
 	bool is_iomem;
+	bool is_normal;
 	gh_memparcel_handle_t shmem_handle;
 };
 

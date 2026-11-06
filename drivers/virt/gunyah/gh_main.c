@@ -295,24 +295,47 @@ static int gh_exit_vm(struct gh_vm *vm, u32 stop_reason, u8 stop_flags)
 	return 0;
 }
 
-static int gh_stop_vm(struct gh_vm *vm)
+/* Stop the VM once, resources are reclaimed later by gh_vm_cleanup() */
+static void gh_stop_vm(struct gh_vm *vm)
 {
 	gh_vmid_t vmid = vm->vmid;
-	int ret = -EINVAL;
+	int status, ret;
 
-	ret = gh_exit_vm(vm, GH_VM_STOP_RESTART,
+	mutex_lock(&vm->vm_lock);
+	status = gh_vm_get_status(vm);
+	if (vm->vm_stopped) {
+		pr_debug("VM:%d already stopped, skip stop\n", vmid);
+		mutex_unlock(&vm->vm_lock);
+		return;
+	}
+	if (status == GH_RM_VM_STATUS_NO_STATE) {
+		pr_debug("VM:%d has no state, nothing to stop\n", vmid);
+		mutex_unlock(&vm->vm_lock);
+		return;
+	}
+	vm->vm_stopped = true;
+	mutex_unlock(&vm->vm_lock);
+
+	/*
+	 * The VM may have exited on its own (guest shutdown/reset, watchdog
+	 * bite, fault) before qcrosvm released its last vcpu. No stop is
+	 * needed then, but clients and userspace still get notified below.
+	 */
+	if (status != GH_RM_VM_STATUS_EXITED) {
+		ret = gh_exit_vm(vm, GH_VM_STOP_RESTART,
 					GH_RM_VM_STOP_FLAG_FORCE_STOP);
-	if (ret && ret != -ENODEV)
-		goto err_vm_force_stop;
-
-	return ret;
-
-err_vm_force_stop:
-	ret = gh_exit_vm(vm, GH_VM_STOP_FORCE_STOP,
+		if (ret && ret != -ENODEV) {
+			ret = gh_exit_vm(vm, GH_VM_STOP_FORCE_STOP,
 					GH_RM_VM_STOP_FLAG_FORCE_STOP);
-	if (ret)
-		pr_err("VM:%d force stop has failed\n", vmid);
-	return ret;
+			if (ret)
+				pr_err("VM:%d force stop has failed\n", vmid);
+		}
+	}
+
+	gh_notify_clients(vm, GH_VM_EARLY_POWEROFF);
+
+	/* Always notify, even if the stop failed, so waiters don't hang */
+	gh_uevent_notify_change(GH_EVENT_STOP_VM, vm);
 }
 
 void gh_destroy_vcpu(struct gh_vcpu *vcpu)
@@ -332,15 +355,12 @@ void gh_destroy_vm(struct gh_vm *vm)
 	if (gh_vm_get_status(vm) == GH_RM_VM_STATUS_NO_STATE)
 		goto clean_vm;
 
-	gh_stop_vm(vm);
-
 	for (vcpu_id = 0; vm->created_vcpus && vcpu_id < GH_MAX_VCPUS; vcpu_id++) {
 		if (!vm->vcpus[vcpu_id])
 			continue;
 		gh_destroy_vcpu(vm->vcpus[vcpu_id]);
 	}
 
-	gh_notify_clients(vm, GH_VM_EARLY_POWEROFF);
 	gh_vm_cleanup(vm);
 
 	gh_uevent_notify_change(GH_EVENT_DESTROY_VM, vm);
@@ -367,10 +387,23 @@ static void gh_put_vm(struct gh_vm *vm)
 		gh_destroy_vm(vm);
 }
 
+static void gh_get_vcpu_users(struct gh_vm *vm)
+{
+	atomic_inc(&vm->vcpu_users);
+}
+
+/* The VMM is gone once its last vcpu fd is closed, VM fd may still be held */
+static void gh_put_vcpu_users(struct gh_vm *vm)
+{
+	if (atomic_dec_and_test(&vm->vcpu_users))
+		gh_stop_vm(vm);
+}
+
 static int gh_vcpu_release(struct inode *inode, struct file *filp)
 {
 	struct gh_vcpu *vcpu = filp->private_data;
 
+	gh_put_vcpu_users(vcpu->vm);
 	gh_put_vm(vcpu->vm);
 	return 0;
 }
@@ -523,6 +556,12 @@ static long gh_vm_ioctl_create_vcpu(struct gh_vm *vm, u32 id)
 		return -EINVAL;
 
 	mutex_lock(&vm->vm_lock);
+	if (vm->vm_stopped) {
+		pr_err("VM:%d is stopped, can't create vcpu\n", vm->vmid);
+		mutex_unlock(&vm->vm_lock);
+		return -EINVAL;
+	}
+
 	if (vm->vcpus[id]) {
 		err = -EEXIST;
 		mutex_unlock(&vm->vm_lock);
@@ -554,6 +593,7 @@ static long gh_vm_ioctl_create_vcpu(struct gh_vm *vm, u32 id)
 
 	fd_install(fd, file);
 	gh_get_vm(vm);
+	gh_get_vcpu_users(vm);
 
 	vm->vcpus[id] = vcpu;
 	vm->created_vcpus++;
@@ -1239,6 +1279,8 @@ static struct gh_vm *gh_create_vm(void)
 		return ERR_PTR(ret);
 	}
 	refcount_set(&vm->users_count, 1);
+	atomic_set(&vm->vcpu_users, 0);
+	vm->vm_stopped = false;
 	init_waitqueue_head(&vm->vm_status_wait);
 	init_waitqueue_head(&vm->vm_exit_ioc_wait);
 	gh_vm_set_status(vm, GH_RM_VM_STATUS_NO_STATE);
@@ -1355,6 +1397,10 @@ void gh_uevent_notify_change(unsigned int type, struct gh_vm *vm)
 
 	if (type == GH_EVENT_CREATE_VM)
 		add_uevent_var(env, "EVENT=create");
+	else if (type == GH_EVENT_STOP_VM) {
+		add_uevent_var(env, "EVENT=stopped");
+		add_uevent_var(env, "vm_exit=%d", vm->exit_type);
+	}
 	else if (type == GH_EVENT_DESTROY_VM) {
 		add_uevent_var(env, "EVENT=destroy");
 		add_uevent_var(env, "vm_exit=%d", vm->exit_type);
